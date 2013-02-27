@@ -295,6 +295,7 @@ webidl_files = \
   SVGFitToViewBox.webidl \
   SVGForeignObjectElement.webidl \
   SVGGElement.webidl \
+  SVGGlobalCoordinateSystemElement.webidl \
   SVGGradientElement.webidl \
   SVGGraphicsElement.webidl \
   SVGImageElement.webidl \
