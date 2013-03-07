@@ -70,7 +70,8 @@
                                   android:clickable="true"
                                   android:focusable="true">
 
-                <Gecko.ImageView style="@style/AddressBar.Button"
+                <Gecko.ImageView android:id="@+id/awesome_bar_entry"
+                                 style="@style/AddressBar.Button"
                                  android:layout_marginLeft="20dp"
                                  android:layout_marginRight="0dp"
                                  android:layout_marginTop="7dp"
@@ -150,7 +151,8 @@
                                 android:textColorHint="@color/awesome_bar_title_hint"
                                 android:gravity="center_vertical|left"
                                 android:hint="@string/awesomebar_default_text"
-                                android:layout_gravity="center_vertical"/>
+                                android:layout_gravity="center_vertical"
+                                gecko:autoUpdateTheme="false"/>
 
                 <ImageButton android:id="@+id/reader"
                              style="@style/AddressBar.ImageButton.Icon"

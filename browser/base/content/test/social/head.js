@@ -81,7 +81,7 @@ function runSocialTestWithProvider(manifest, callback) {
             SocialService.removeProvider(origin, cb);
           } catch (ex) {
             // Ignore "provider doesn't exist" errors.
-            if (ex.message == "SocialService.removeProvider: no provider with this origin exists!")
+            if (ex.message.indexOf("SocialService.removeProvider: no provider with origin") == 0)
               return;
             info("Failed to clean up provider " + origin + ": " + ex);
           }
@@ -181,19 +181,63 @@ function checkSocialUI(win) {
     isbool(win.SocialSidebar.opened, enabled, "social sidebar open?");
   isbool(win.SocialChatBar.isAvailable, enabled && Social.haveLoggedInUser(), "chatbar available?");
   isbool(!win.SocialChatBar.chatbar.hidden, enabled && Social.haveLoggedInUser(), "chatbar visible?");
-  isbool(!win.SocialShareButton.shareButton.hidden, enabled && provider.recommendInfo, "share button visible?");
+  isbool(!win.SocialShareButton.shareButton.hidden, enabled && Social.haveLoggedInUser() && provider.recommendInfo, "share button visible?");
   isbool(!doc.getElementById("social-toolbar-item").hidden, enabled, "toolbar items visible?");
   if (enabled)
     is(win.SocialToolbar.button.style.listStyleImage, 'url("' + provider.iconURL + '")', "toolbar button has provider icon");
 
   // and for good measure, check all the social commands.
-  // Social:Remove - never disabled directly but parent nodes are
   isbool(!doc.getElementById("Social:Toggle").hidden, enabled, "Social:Toggle visible?");
   isbool(!doc.getElementById("Social:ToggleNotifications").hidden, enabled, "Social:ToggleNotifications visible?");
   isbool(!doc.getElementById("Social:FocusChat").hidden, enabled && Social.haveLoggedInUser(), "Social:FocusChat visible?");
   isbool(doc.getElementById("Social:FocusChat").getAttribute("disabled"), enabled ? "false" : "true", "Social:FocusChat disabled?");
-  is(doc.getElementById("Social:SharePage").getAttribute("disabled"), enabled && provider.recommendInfo ? "false" : "true", "Social:SharePage visible?");
+  is(doc.getElementById("Social:SharePage").getAttribute("disabled"), enabled && Social.haveLoggedInUser() && provider.recommendInfo ? "false" : "true", "Social:SharePage visible?");
 
   // broadcasters.
   isbool(!doc.getElementById("socialActiveBroadcaster").hidden, enabled, "socialActiveBroadcaster hidden?");
+}
+
+// blocklist testing
+function updateBlocklist(aCallback) {
+  var blocklistNotifier = Cc["@mozilla.org/extensions/blocklist;1"]
+                          .getService(Ci.nsITimerCallback);
+  var observer = function() {
+    Services.obs.removeObserver(observer, "blocklist-updated");
+    if (aCallback)
+      executeSoon(aCallback);
+  };
+  Services.obs.addObserver(observer, "blocklist-updated", false);
+  blocklistNotifier.notify(null);
+}
+
+var _originalTestBlocklistURL = null;
+function setAndUpdateBlocklist(aURL, aCallback) {
+  if (!_originalTestBlocklistURL)
+    _originalTestBlocklistURL = Services.prefs.getCharPref("extensions.blocklist.url");
+  Services.prefs.setCharPref("extensions.blocklist.url", aURL);
+  updateBlocklist(aCallback);
+}
+
+function resetBlocklist() {
+  Services.prefs.setCharPref("extensions.blocklist.url", _originalTestBlocklistURL);
+}
+
+function addWindowListener(aURL, aCallback) {
+  Services.wm.addListener({
+    onOpenWindow: function(aXULWindow) {
+      info("window opened, waiting for focus");
+      Services.wm.removeListener(this);
+
+      var domwindow = aXULWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+                                .getInterface(Ci.nsIDOMWindow);
+      waitForFocus(function() {
+        is(domwindow.document.location.href, aURL, "window opened and focused");
+        executeSoon(function() {
+          aCallback(domwindow);
+        });
+      }, domwindow);
+    },
+    onCloseWindow: function(aXULWindow) { },
+    onWindowTitleChange: function(aXULWindow, aNewTitle) { }
+  });
 }

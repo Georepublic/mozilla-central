@@ -34,6 +34,14 @@ const CONFIG_SEND_REPORT_ALWAYS      = 3;
 const TIME_TO_BUFFER_MMS_REQUESTS    = 30000;
 const TIME_TO_RELEASE_MMS_CONNECTION = 30000;
 
+const PREF_RETRIEVAL_MODE = 'dom.mms.retrieval_mode';
+const RETRIEVAL_MODE_MANUAL = "manual";
+const RETRIEVAL_MODE_AUTOMATIC = "automatic";
+const RETRIEVAL_MODE_NEVER = "never";
+
+const MAX_RETRY_COUNT = Services.prefs.getIntPref("dom.mms.retrievalRetryCount");
+const DELAY_TIME_TO_RETRY = Services.prefs.getIntPref("dom.mms.retrievalRetryInterval");
+
 XPCOMUtils.defineLazyServiceGetter(this, "gpps",
                                    "@mozilla.org/network/protocol-proxy-service;1",
                                    "nsIProtocolProxyService");
@@ -476,22 +484,42 @@ RetrieveTransaction.prototype = {
    *        the other for the parsed M-Retrieve.conf message.
    */
   run: function run(callback) {
-    let callbackIfValid = function callbackIfValid(status, msg) {
-      if (callback) {
-        callback(status, msg);
+    this.retryCount = 0;
+    let that = this;
+    this.retrieve((function retryCallback(mmsStatus, msg) {
+      if (MMS.MMS_PDU_STATUS_DEFERRED == mmsStatus &&
+          that.retryCount < MAX_RETRY_COUNT) {
+        that.retryCount++;
+        let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+        timer.initWithCallback((function (){
+                                 this.retrieve(retryCallback);
+                               }).bind(that),
+                               DELAY_TIME_TO_RETRY,
+                               Ci.nsITimer.TYPE_ONE_SHOT);
+        return;
       }
-    }
+      if (callback) {
+        callback(mmsStatus, msg);
+      }
+    }).bind(this));
+  },
 
+  /**
+   * @param callback
+   *        A callback function that takes two arguments: one for X-Mms-Status,
+   *        the other for the parsed M-Retrieve.conf message.
+   */
+  retrieve: function retrieve(callback) {
     gMmsTransactionHelper.sendRequest("GET", this.contentLocation, null,
                                       (function (httpStatus, data) {
       if ((httpStatus != HTTP_STATUS_OK) || !data) {
-        callbackIfValid(MMS.MMS_PDU_STATUS_DEFERRED, null);
+        callback(MMS.MMS_PDU_STATUS_DEFERRED, null);
         return;
       }
 
       let retrieved = MMS.PduHelper.parse(data, null);
       if (!retrieved || (retrieved.type != MMS.MMS_PDU_TYPE_RETRIEVE_CONF)) {
-        callbackIfValid(MMS.MMS_PDU_STATUS_UNRECOGNISED, null);
+        callback(MMS.MMS_PDU_STATUS_UNRECOGNISED, null);
         return;
       }
 
@@ -503,12 +531,12 @@ RetrieveTransaction.prototype = {
       let retrieveStatus = retrieved.headers["x-mms-retrieve-status"];
       if ((retrieveStatus != null) &&
           (retrieveStatus != MMS.MMS_PDU_ERROR_OK)) {
-        callbackIfValid(MMS.translatePduErrorToStatus(retrieveStatus),
+        callback(MMS.translatePduErrorToStatus(retrieveStatus),
                         retrieved);
         return;
       }
 
-      callbackIfValid(MMS.MMS_PDU_STATUS_RETRIEVED, retrieved);
+      callback(MMS.MMS_PDU_STATUS_RETRIEVED, retrieved);
     }).bind(this));
   }
 };
@@ -684,6 +712,48 @@ SendTransaction.prototype = {
 };
 
 /**
+ * Send M-acknowledge.ind back to MMSC.
+ *
+ * @param transactionId
+ *        X-Mms-Transaction-ID of the message.
+ * @param reportAllowed
+ *        X-Mms-Report-Allowed of the response.
+ *
+ * @see OMA-TS-MMS_ENC-V1_3-20110913-A section 6.4
+ */
+function AcknowledgeTransaction(transactionId, reportAllowed) {
+  let headers = {};
+
+  // Mandatory fields
+  headers["x-mms-message-type"] = MMS.MMS_PDU_TYPE_ACKNOWLEDGE_IND;
+  headers["x-mms-transaction-id"] = transactionId;
+  headers["x-mms-mms-version"] = MMS.MMS_VERSION;
+  // Optional fields
+  headers["x-mms-report-allowed"] = reportAllowed;
+
+  this.istream = MMS.PduHelper.compose(null, {headers: headers});
+}
+AcknowledgeTransaction.prototype = {
+  /**
+   * @param callback [optional]
+   *        A callback function that takes one argument -- the http status.
+   */
+  run: function run(callback) {
+    let requestCallback;
+    if (callback) {
+      requestCallback = function (httpStatus, data) {
+        // `The MMS Client SHOULD ignore the associated HTTP POST response
+        // from the MMS Proxy-Relay.` ~ OMA-TS-MMS_CTR-V1_3-20110913-A
+        // section 8.2.3 "Retrieving an MM".
+        callback(httpStatus);
+      };
+    }
+    gMmsTransactionHelper.sendRequest("POST", gMmsConnection.mmsc,
+                                      this.istream, requestCallback);
+  }
+};
+
+/**
  * MmsService
  */
 function MmsService() {
@@ -699,17 +769,6 @@ MmsService.prototype = {
    * and M-Acknowledge.ind PDU.
    */
   confSendDeliveryReport: CONFIG_SEND_REPORT_DEFAULT_YES,
-
-  /**
-   * @param status
-   *        The MMS error type.
-   *
-   * @return true if it's a type of transient error; false otherwise.
-   */
-  isTransientError: function isTransientError(status) {
-    return (status >= MMS.MMS_PDU_ERROR_TRANSIENT_FAILURE &&
-            status < MMS.MMS_PDU_ERROR_PERMANENT_FAILURE);
-  },
 
   /**
    * Calculate Whether or not should we enable X-Mms-Report-Allowed.
@@ -739,7 +798,6 @@ MmsService.prototype = {
   retrieveMessage: function retrieveMessage(contentLocation, callback) {
     // TODO: bug 839436 - make DB be able to save MMS messages
     // TODO: bug 810099 - support onretrieving event
-    // TODO: bug 810097 - Retry retrieval on error
     // TODO: bug 809832 - support customizable max incoming/outgoing message
     //                     size.
 
@@ -755,34 +813,50 @@ MmsService.prototype = {
    */
   handleNotificationIndication: function handleNotificationIndication(notification) {
     // TODO: bug 839436 - make DB be able to save MMS messages
-    // TODO: bug 810067 - support automatic/manual/never retrieval modes
 
     let url = notification.headers["x-mms-content-location"].uri;
     // TODO: bug 810091 - don't download message twice on receiving duplicated
     //                     notification
-    this.retrieveMessage(url, (function (mmsStatus, retrievedMsg) {
-      debug("retrievedMsg = " + JSON.stringify(retrievedMsg));
-      if (this.isTransientError(mmsStatus)) {
-        // TODO: remove this check after bug 810097 is landed.
-        return;
-      }
 
-      let transactionId = notification.headers["x-mms-transaction-id"];
+    let retrievalMode = RETRIEVAL_MODE_MANUAL;
+    try {
+      retrievalMode = Services.prefs.getCharPref(PREF_RETRIEVAL_MODE);
+    } catch (e) {}
 
-      // For X-Mms-Report-Allowed
-      let wish = notification.headers["x-mms-delivery-report"];
-      // `The absence of the field does not indicate any default value.`
-      // So we go checking the same field in retrieved message instead.
-      if ((wish == null) && retrievedMsg) {
-        wish = retrievedMsg.headers["x-mms-delivery-report"];
-      }
-      let reportAllowed =
-        this.getReportAllowed(this.confSendDeliveryReport, wish);
+    if (RETRIEVAL_MODE_AUTOMATIC === retrievalMode) {
+      this.retrieveMessage(url, (function responseNotify(mmsStatus, retrievedMsg) {
+        debug("retrievedMsg = " + JSON.stringify(retrievedMsg));
+        // TODO: Bug 845643 - B2G MMS: Save retrieved MM into database.
 
-      let transaction =
-        new NotifyResponseTransaction(transactionId, mmsStatus, reportAllowed);
-      transaction.run();
-    }).bind(this));
+        let transactionId = notification.headers["x-mms-transaction-id"];
+
+        // For X-Mms-Report-Allowed
+        let wish = notification.headers["x-mms-delivery-report"];
+        // `The absence of the field does not indicate any default value.`
+        // So we go checking the same field in retrieved message instead.
+        if ((wish == null) && retrievedMsg) {
+          wish = retrievedMsg.headers["x-mms-delivery-report"];
+        }
+        let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport, wish);
+
+        let transaction =
+          new NotifyResponseTransaction(transactionId, mmsStatus, reportAllowed);
+        transaction.run();
+      }).bind(this));
+      return;
+    }
+
+    let transactionId = notification.headers["x-mms-transaction-id"];
+    let mmsStatus = RETRIEVAL_MODE_NEVER === retrievalMode ?
+        MMS.MMS_PDU_STATUS_REJECTED : MMS.MMS_PDU_STATUS_DEFERRED;
+    // For X-Mms-Report-Allowed
+    let wish = notification.headers["x-mms-delivery-report"];
+    let reportAllowed = this.getReportAllowed(this.confSendDeliveryReport, wish);
+
+    let transaction = new NotifyResponseTransaction(transactionId,
+                                                    mmsStatus,
+                                                    reportAllowed);
+    transaction.run();
   },
 
   /**

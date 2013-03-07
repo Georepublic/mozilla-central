@@ -30,6 +30,9 @@ XPCOMUtils.defineLazyGetter(this, "DebuggerServer", function() {
   return DebuggerServer;
 });
 
+XPCOMUtils.defineLazyModuleGetter(this, "UserAgentOverrides",
+                                  "resource://gre/modules/UserAgentOverrides.jsm");
+
 XPCOMUtils.defineLazyGetter(this, "NetUtil", function() {
   Cu.import("resource://gre/modules/NetUtil.jsm");
   return NetUtil;
@@ -567,7 +570,7 @@ var BrowserApp = {
 
     let tab = this.selectedTab;
     if (!tab)
-      return true;
+      return false;
     return tab.contentDocumentIsDisplayed;
   },
 
@@ -679,9 +682,7 @@ var BrowserApp = {
       if (tab) {
         let message = {
           type: "Content:LoadError",
-          tabID: tab.id,
-          uri: aBrowser.currentURI.spec,
-          title: aBrowser.contentTitle
+          tabID: tab.id
         };
         sendMessageToJava(message);
         dump("Handled load error: " + e)
@@ -2395,9 +2396,6 @@ var SelectionHandler = {
   },
 
   positionHandles: function sh_positionHandles() {
-    // Translate coordinates to account for selections in sub-frames. We can't cache
-    // this because the top-level page may have scrolled since selection started.
-    let offset = this._getViewOffset();
     let scrollX = {}, scrollY = {};
     this._view.top.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).getScrollXY(false, scrollX, scrollY);
 
@@ -2417,26 +2415,33 @@ var SelectionHandler = {
 
     let positions = null;
     if (this._activeType == this.TYPE_CURSOR) {
+      // The left and top properties returned are relative to the client area
+      // of the window, so we don't need to account for a sub-frame offset.
       let cursor = this._cwu.sendQueryContentEvent(this._cwu.QUERY_CARET_RECT, this._target.selectionEnd, 0, 0, 0);
       let x = cursor.left;
       let y = cursor.top + cursor.height;
-      positions = [ { handle: this.HANDLE_TYPE_MIDDLE,
-                     left: x + offset.x + scrollX.value,
-                     top: y + offset.y + scrollY.value,
-                     hidden: checkHidden(x, y) } ];
+      positions = [{ handle: this.HANDLE_TYPE_MIDDLE,
+                     left: x + scrollX.value,
+                     top: y + scrollY.value,
+                     hidden: checkHidden(x, y) }];
     } else {
       let sx = this.cache.start.x;
       let sy = this.cache.start.y;
       let ex = this.cache.end.x;
       let ey = this.cache.end.y;
-      positions = [ { handle: this.HANDLE_TYPE_START,
+
+      // Translate coordinates to account for selections in sub-frames. We can't cache
+      // this because the top-level page may have scrolled since selection started.
+      let offset = this._getViewOffset();
+
+      positions = [{ handle: this.HANDLE_TYPE_START,
                      left: sx + offset.x + scrollX.value,
                      top: sy + offset.y + scrollY.value,
                      hidden: checkHidden(sx, sy) },
                    { handle: this.HANDLE_TYPE_END,
                      left: ex + offset.x + scrollX.value,
                      top: ey + offset.y + scrollY.value,
-                     hidden: checkHidden(ex, ey) } ];
+                     hidden: checkHidden(ex, ey) }];
     }
 
     sendMessageToJava({
@@ -2592,7 +2597,8 @@ var UserAgent = {
 
   init: function ua_init() {
     Services.obs.addObserver(this, "DesktopMode:Change", false);
-    Services.obs.addObserver(this, "http-on-modify-request", false);
+    UserAgentOverrides.init();
+    UserAgentOverrides.addComplexOverride(this.onRequest.bind(this));
 
     // See https://developer.mozilla.org/en/Gecko_user_agent_string_reference
     this.DESKTOP_UA = Cc["@mozilla.org/network/protocol;1?name=http"]
@@ -2603,7 +2609,39 @@ var UserAgent = {
 
   uninit: function ua_uninit() {
     Services.obs.removeObserver(this, "DesktopMode:Change");
-    Services.obs.removeObserver(this, "http-on-modify-request");
+    UserAgentOverrides.uninit();
+  },
+
+  onRequest: function(channel, defaultUA) {
+    let channelWindow = this._getWindowForRequest(channel);
+    let tab = BrowserApp.getTabForWindow(channelWindow);
+    if (tab == null)
+      return;
+
+    let ua = this.getUserAgentForUriAndTab(channel.URI, tab, defaultUA);
+    if (ua)
+      channel.setRequestHeader("User-Agent", ua, false);
+  },
+
+  getUserAgentForWindow: function ua_getUserAgentForWindow(aWindow, defaultUA) {
+    let tab = BrowserApp.getTabForWindow(aWindow.top);
+    if (tab)
+      return this.getUserAgentForUriAndTab(tab.browser.currentURI, tab, defaultUA);
+    return defaultUA;
+  },
+
+  getUserAgentForUriAndTab: function ua_getUserAgentForUriAndTab(aUri, aTab, defaultUA) {
+    if (this.YOUTUBE_DOMAIN.test(aUri.host)) {
+      // Send the phone UA to youtube if this is a tablet
+      if (defaultUA.indexOf("Android; Mobile;") === -1)
+        return defaultUA.replace("Android;", "Android; Mobile;");
+    }
+
+    // Send desktop UA if "Request Desktop Site" is enabled
+    if (aTab.desktopMode)
+      return this.DESKTOP_UA;
+
+    return defaultUA;
   },
 
   _getRequestLoadContext: function ua_getRequestLoadContext(aRequest) {
@@ -2630,36 +2668,11 @@ var UserAgent = {
   },
 
   observe: function ua_observe(aSubject, aTopic, aData) {
-    switch (aTopic) {
-      case "DesktopMode:Change": {
-        let args = JSON.parse(aData);
-        let tab = BrowserApp.getTabForId(args.tabId);
-        if (tab != null)
-          tab.reloadWithMode(args.desktopMode);
-        break;
-      }
-      case "http-on-modify-request": {
-        let channel = aSubject.QueryInterface(Ci.nsIHttpChannel);
-        let channelWindow = this._getWindowForRequest(channel);
-        let tab = BrowserApp.getTabForWindow(channelWindow);
-        if (tab == null)
-          break;
-
-        if (this.YOUTUBE_DOMAIN.test(channel.URI.host)) {
-          let ua = Cc["@mozilla.org/network/protocol;1?name=http"].getService(Ci.nsIHttpProtocolHandler).userAgent;
-          // Send the phone UA to youtube if this is a tablet
-          if (ua.indexOf("Android; Mobile;") === -1) {
-            ua = ua.replace("Android;", "Android; Mobile;");
-            channel.setRequestHeader("User-Agent", ua, false);
-          }
-        }
-
-        // Send desktop UA if "Request Desktop Site" is enabled
-        if (tab.desktopMode)
-          channel.setRequestHeader("User-Agent", this.DESKTOP_UA, false);
-
-        break;
-      }
+    if (aTopic === "DesktopMode:Change") {
+      let args = JSON.parse(aData);
+      let tab = BrowserApp.getTabForId(args.tabId);
+      if (tab != null)
+        tab.reloadWithMode(args.desktopMode);
     }
   }
 };
@@ -2923,9 +2936,7 @@ Tab.prototype = {
       } catch(e) {
         let message = {
           type: "Content:LoadError",
-          tabID: this.id,
-          uri: this.browser.currentURI.spec,
-          title: this.browser.contentTitle
+          tabID: this.id
         };
         sendMessageToJava(message);
         dump("Handled load error: " + e);
@@ -2954,7 +2965,7 @@ Tab.prototype = {
       sendMessageToJava({
         type: "DesktopMode:Changed",
         desktopMode: aDesktopMode,
-        tabId: this.id
+        tabID: this.id
       });
     }
 
@@ -3070,8 +3081,8 @@ Tab.prototype = {
         this._drawZoom = resolution;
         cwu.setResolution(resolution, resolution);
       }
-    } else if (resolution != zoom) {
-      dump("Warning: setDisplayPort resolution did not match zoom for background tab!");
+    } else if (Math.abs(resolution - zoom) >= 1e-6) {
+      dump("Warning: setDisplayPort resolution did not match zoom for background tab! (" + resolution + " != " + zoom + ")");
     }
 
     // Finally, we set the display port, taking care to convert everything into the CSS-pixel
@@ -3450,6 +3461,10 @@ Tab.prototype = {
             list.push("[" + rel + "]");
         }
 
+        // We only care about icon links
+        if (list.indexOf("[icon]") == -1)
+          return;
+
         // We want to get the largest icon size possible for our UI.
         let maxSize = 0;
 
@@ -3510,7 +3525,7 @@ Tab.prototype = {
           aEvent.preventDefault();
 
           sendMessageToJava({
-            type: "DOMWindowClose",
+            type: "Tab:Close",
             tabID: this.id
           });
         }
@@ -3932,7 +3947,9 @@ Tab.prototype = {
         // Is it on the top level?
         let contentDocument = aSubject;
         if (contentDocument == this.browser.contentDocument) {
-          BrowserApp.displayedDocumentChanged();
+          if (BrowserApp.selectedTab == this) {
+            BrowserApp.displayedDocumentChanged();
+          }
           this.contentDocumentIsDisplayed = true;
 
           // reset CSS viewport and zoom to default on new page, and then calculate
@@ -5167,18 +5184,6 @@ var FormAssistant = {
     return suggestions;
   },
 
-  // Gets the element position data necessary for the Java UI to position
-  // the form assist popup.
-  _getElementPositionData: function _getElementPositionData(aElement) {
-    let rect = ElementTouchHelper.getBoundingContentRect(aElement);
-    let viewport = BrowserApp.selectedTab.getViewport();
-    
-    return { rect: [rect.x - (viewport.x / viewport.zoom),
-                    rect.y - (viewport.y / viewport.zoom),
-                    rect.w, rect.h],
-             zoom: viewport.zoom }
-  },
-
   // Retrieves autocomplete suggestions for an element from the form autocomplete service
   // and sends the suggestions to the Java UI, along with element position data.
   // Returns true if there are suggestions to show, false otherwise.
@@ -5203,12 +5208,10 @@ var FormAssistant = {
     if (!suggestions.length)
       return false;
 
-    let positionData = this._getElementPositionData(aElement);
     sendMessageToJava({
       type:  "FormAssist:AutoComplete",
       suggestions: suggestions,
-      rect: positionData.rect,
-      zoom: positionData.zoom
+      rect: ElementTouchHelper.getBoundingContentRect(aElement)
     });
 
     // Keep track of input element so we can fill it in if the user
@@ -5238,12 +5241,10 @@ var FormAssistant = {
     if (!this._isValidateable(aElement))
       return false;
 
-    let positionData = this._getElementPositionData(aElement);
     sendMessageToJava({
       type: "FormAssist:ValidationMessage",
       validationMessage: aElement.validationMessage,
-      rect: positionData.rect,
-      zoom: positionData.zoom
+      rect: ElementTouchHelper.getBoundingContentRect(aElement)
     });
 
     return true;
@@ -8152,7 +8153,11 @@ var MemoryObserver = {
 };
 
 var Distribution = {
+  // File used to store campaign data
   _file: null,
+
+  // Path to distribution directory for distribution customizations
+  _path: null,
 
   init: function dc_init() {
     Services.obs.addObserver(this, "Distribution:Set", false);
@@ -8160,7 +8165,7 @@ var Distribution = {
     Services.obs.addObserver(this, "Campaign:Set", false);
 
     // Look for file outside the APK:
-    // /data/data/org.mozilla.fennec/distribution.json
+    // /data/data/org.mozilla.xxx/distribution.json
     this._file = Services.dirsvc.get("XCurProcD", Ci.nsIFile);
     this._file.append("distribution.json");
     this.readJSON(this._file, this.update);
@@ -8175,6 +8180,8 @@ var Distribution = {
   observe: function dc_observe(aSubject, aTopic, aData) {
     switch (aTopic) {
       case "Distribution:Set":
+        this._path = aData;
+
         // Reload the default prefs so we can observe "prefservice:after-app-defaults"
         Services.prefs.QueryInterface(Ci.nsIObserver).observe(null, "reload-default-prefs", null);
         break;
@@ -8215,10 +8222,16 @@ var Distribution = {
   },
 
   getPrefs: function dc_getPrefs() {
-    // Look for preferences file outside the APK:
-    // /data/data/org.mozilla.fennec/distribution/preferences.json
-    let file = Services.dirsvc.get("XCurProcD", Ci.nsIFile);
-    file.append("distribution");
+    let file;
+    if (this._path) {
+      file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsILocalFile);
+      file.initWithPath(this._path);
+    } else {
+      // If a path isn't specified, look in the data directory:
+      // /data/data/org.mozilla.xxx/distribution
+      file = Services.dirsvc.get("XCurProcD", Ci.nsIFile);
+      file.append("distribution");
+    }
     file.append("preferences.json");
 
     this.readJSON(file, this.applyPrefs);

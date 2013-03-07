@@ -866,8 +866,9 @@ CodeGenerator::visitConvertElementsToDoubles(LConvertElementsToDoubles *lir)
     if (!ool)
         return false;
 
-    Address convertedAddress(elements, ObjectElements::offsetOfConvertDoubleElements());
-    masm.branch32(Assembler::Equal, convertedAddress, Imm32(0), ool->entry());
+    Address convertedAddress(elements, ObjectElements::offsetOfFlags());
+    Imm32 bit(ObjectElements::CONVERT_DOUBLE_ELEMENTS);
+    masm.branchTest32(Assembler::Zero, convertedAddress, bit, ool->entry());
     masm.bind(ool->rejoin());
     return true;
 }
@@ -1134,7 +1135,7 @@ CodeGenerator::visitCallDOMNative(LCallDOMNative *call)
     } else {
         // Test for failure.
         Label success, exception;
-        masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, &exception);
+        masm.branchTestBool(Assembler::Zero, ReturnReg, ReturnReg, &exception);
 
         // Load the outparam vp[0] into output register(s).
         masm.loadValue(Address(StackPointer, IonDOMMethodExitFrameLayout::offsetOfResult()),
@@ -1716,6 +1717,25 @@ CodeGenerator::visitGetDynamicName(LGetDynamicName *lir)
 
     Assembler::Condition cond = masm.testUndefined(Assembler::Equal, out);
     return bailoutIf(cond, lir->snapshot());
+}
+
+bool
+CodeGenerator::visitFilterArguments(LFilterArguments *lir)
+{
+    Register string = ToRegister(lir->getString());
+    Register temp1 = ToRegister(lir->temp1());
+    Register temp2 = ToRegister(lir->temp2());
+
+    masm.loadJSContext(temp2);
+
+    masm.setupUnalignedABICall(2, temp1);
+    masm.passABIArg(temp2);
+    masm.passABIArg(string);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, FilterArguments));
+
+    Label bail;
+    masm.branch32(Assembler::Equal, ReturnReg, Imm32(0), &bail);
+    return bailoutFrom(&bail, lir->snapshot());
 }
 
 typedef bool (*DirectEvalFn)(JSContext *, HandleObject, HandleScript, HandleValue, HandleString,
@@ -2904,8 +2924,20 @@ CodeGenerator::visitMathFunctionD(LMathFunctionD *ins)
       case MMathFunction::Cos:
         funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_cos_impl);
         break;
+      case MMathFunction::Exp:
+        funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_exp_impl);
+        break;
       case MMathFunction::Tan:
         funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_tan_impl);
+        break;
+      case MMathFunction::ATan:
+        funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_atan_impl);
+        break;
+      case MMathFunction::ASin:
+        funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_asin_impl);
+        break;
+      case MMathFunction::ACos:
+        funptr = JS_FUNC_TO_DATA_PTR(void *, js::math_acos_impl);
         break;
       default:
         JS_NOT_REACHED("Unknown math function");
@@ -4423,8 +4455,6 @@ CodeGenerator::link()
     if (executionMode == ParallelExecution)
         ionScript->zeroParallelInvalidatedScripts();
 
-    linkAbsoluteLabels();
-
     // The correct state for prebarriers is unknown until the end of compilation,
     // since a GC can occur during code generation. All barriers are emitted
     // off-by-default, and are toggled on here if necessary.
@@ -5513,7 +5543,7 @@ CodeGenerator::visitGetDOMProperty(LGetDOMProperty *ins)
                        JSReturnOperand);
     } else {
         Label success, exception;
-        masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, &exception);
+        masm.branchTestBool(Assembler::Zero, ReturnReg, ReturnReg, &exception);
 
         masm.loadValue(Address(StackPointer, IonDOMExitFrameLayout::offsetOfResult()),
                        JSReturnOperand);
@@ -5575,7 +5605,7 @@ CodeGenerator::visitSetDOMProperty(LSetDOMProperty *ins)
     masm.callWithABI(JS_FUNC_TO_DATA_PTR(void *, ins->mir()->fun()));
 
     Label success, exception;
-    masm.branchTest32(Assembler::Zero, ReturnReg, ReturnReg, &exception);
+    masm.branchTestBool(Assembler::Zero, ReturnReg, ReturnReg, &exception);
 
     masm.jump(&success);
 

@@ -24,7 +24,7 @@ load 321224.xul
 load 322780-1.xul
 load 323381-1.html
 load 323381-2.html
-asserts-if(gtk2Widget,13-14) load 323386-1.html # Bug 575011
+asserts-if(gtk2Widget,13-15) load 323386-1.html # Bug 575011
 load 323389-1.html
 load 323389-2.html
 load 323493-1.html
@@ -296,8 +296,8 @@ load 465651-1.html
 load 467137-1.html
 load 467213-1.html
 load 467487-1.html
-asserts(6-9) load 467493-1.html
-asserts(4-8) load 467493-2.html
+asserts(6-10) load 467493-1.html
+asserts(4-9) load 467493-2.html
 load 467875-1.xhtml
 load 467914-1.html
 load 468207-1.html
@@ -425,6 +425,7 @@ load 683712.html
 load text-overflow-bug713610.html
 load 700031.xhtml
 load 718516.html
+load 724978.xhtml
 load first-letter-638937.html
 load first-letter-638937-2.html
 load 734777.html
@@ -438,8 +439,11 @@ test-pref(layout.css.flexbox.enabled,true) load 798235-1.html
 test-pref(layout.css.flexbox.enabled,true) load 799207-1.html
 asserts(12) test-pref(layout.css.flexbox.enabled,true) load 799207-2.html
 test-pref(layout.css.flexbox.enabled,true) load 804089-1.xhtml
+load 840818.html
 test-pref(layout.css.flexbox.enabled,true) load 812822-1.html
 asserts(1) test-pref(layout.css.flexbox.enabled,true) load 824297-1.html # bug 399262
 asserts(1) test-pref(layout.css.flexbox.enabled,true) load 826532-1.html # bug 399262
 test-pref(layout.css.flexbox.enabled,true) load 827168-1.html
 load 842132-1.html
+test-pref(layout.css.flexbox.enabled,true) load 844529-1.html
+load 847130.xhtml

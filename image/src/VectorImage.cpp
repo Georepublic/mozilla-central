@@ -21,6 +21,7 @@
 #include "nsSVGEffects.h" // for nsSVGRenderingObserver
 #include "gfxDrawable.h"
 #include "gfxUtils.h"
+#include "mozilla/AutoRestore.h"
 #include "mozilla/dom/SVGSVGElement.h"
 #include <algorithm>
 
@@ -32,7 +33,7 @@ using namespace layers;
 namespace image {
 
 // Helper-class: SVGRootRenderingObserver
-class SVGRootRenderingObserver : public nsSVGRenderingObserver {
+class SVGRootRenderingObserver MOZ_FINAL : public nsSVGRenderingObserver {
 public:
   SVGRootRenderingObserver(SVGDocumentWrapper* aDocWrapper,
                            VectorImage*        aVectorImage)
@@ -40,19 +41,21 @@ public:
       mDocWrapper(aDocWrapper),
       mVectorImage(aVectorImage)
   {
+    MOZ_ASSERT(mDocWrapper, "Need a non-null SVG document wrapper");
+    MOZ_ASSERT(mVectorImage, "Need a non-null VectorImage");
+
     StartListening();
     Element* elem = GetTarget();
-    if (elem) {
-      nsSVGEffects::AddRenderingObserver(elem, this);
-      mInObserverList = true;
-    }
-#ifdef DEBUG
-    else {
-      NS_ABORT_IF_FALSE(!mInObserverList,
-                        "Have no target, so we can't be in "
-                        "target's observer list...");
-    }
-#endif
+    MOZ_ASSERT(elem, "no root SVG node for us to observe");
+
+    nsSVGEffects::AddRenderingObserver(elem, this);
+    mInObserverList = true;
+  }
+
+  void ResumeListening()
+  {
+    // GetReferencedElement adds us back to our target's observer list.
+    GetReferencedElement();
   }
 
   virtual ~SVGRootRenderingObserver()
@@ -61,16 +64,15 @@ public:
   }
 
 protected:
-  virtual Element* GetTarget()
+  virtual Element* GetTarget() MOZ_OVERRIDE
   {
     return mDocWrapper->GetRootSVGElem();
   }
 
-  virtual void DoUpdate()
+  virtual void DoUpdate() MOZ_OVERRIDE
   {
     Element* elem = GetTarget();
-    if (!elem)
-      return;
+    MOZ_ASSERT(elem, "missing root SVG node");
 
     if (!mDocWrapper->ShouldIgnoreInvalidation()) {
       nsIFrame* frame = elem->GetPrimaryFrame();
@@ -82,17 +84,14 @@ protected:
       mVectorImage->InvalidateObserver();
     }
 
-    // Our caller might've removed us from rendering-observer list.
-    // Add ourselves back!
-    if (!mInObserverList) {
-      nsSVGEffects::AddRenderingObserver(elem, this);
-      mInObserverList = true;
-    }
+    // We may have been removed from the observer list by our caller. Rather
+    // than add ourselves back here, we wait until Draw gets called, ensuring
+    // that we coalesce invalidations between Draw calls.
   }
 
   // Private data
-  nsRefPtr<SVGDocumentWrapper> mDocWrapper;
-  VectorImage* mVectorImage;   // Raw pointer because it owns me.
+  const nsRefPtr<SVGDocumentWrapper> mDocWrapper;
+  VectorImage* const mVectorImage;   // Raw pointer because it owns me.
 };
 
 class SVGParseCompleteListener MOZ_FINAL : public nsStubDocumentObserver {
@@ -104,8 +103,8 @@ public:
     : mDocument(aDocument)
     , mImage(aImage)
   {
-    NS_ABORT_IF_FALSE(mDocument, "Need an SVG document");
-    NS_ABORT_IF_FALSE(mImage, "Need an image");
+    MOZ_ASSERT(mDocument, "Need an SVG document");
+    MOZ_ASSERT(mImage, "Need an image");
 
     mDocument->AddObserver(this);
   }
@@ -122,7 +121,7 @@ public:
 
   void EndLoad(nsIDocument* aDocument) MOZ_OVERRIDE
   {
-    NS_ABORT_IF_FALSE(aDocument == mDocument, "Got EndLoad for wrong document?");
+    MOZ_ASSERT(aDocument == mDocument, "Got EndLoad for wrong document?");
 
     // OnSVGDocumentParsed will release our owner's reference to us, so ensure
     // we stick around long enough to complete our work.
@@ -133,14 +132,16 @@ public:
 
   void Cancel()
   {
-    NS_ABORT_IF_FALSE(mDocument, "Duplicate call to Cancel");
-    mDocument->RemoveObserver(this);
-    mDocument = nullptr;
+    MOZ_ASSERT(mDocument, "Duplicate call to Cancel");
+    if (mDocument) {
+      mDocument->RemoveObserver(this);
+      mDocument = nullptr;
+    }
   }
 
 private:
   nsCOMPtr<nsIDocument> mDocument;
-  VectorImage* mImage; // Raw pointer to owner.
+  VectorImage* const mImage; // Raw pointer to owner.
 };
 
 NS_IMPL_ISUPPORTS1(SVGParseCompleteListener, nsIDocumentObserver)
@@ -154,8 +155,8 @@ public:
     : mDocument(aDocument)
     , mImage(aImage)
   {
-    NS_ABORT_IF_FALSE(mDocument, "Need an SVG document");
-    NS_ABORT_IF_FALSE(mImage, "Need an image");
+    MOZ_ASSERT(mDocument, "Need an SVG document");
+    MOZ_ASSERT(mImage, "Need an image");
 
     mDocument->AddEventListener(NS_LITERAL_STRING("MozSVGAsImageDocumentLoad"), this, true, false);
     mDocument->AddEventListener(NS_LITERAL_STRING("SVGAbort"), this, true, false);
@@ -174,7 +175,7 @@ public:
 
   NS_IMETHOD HandleEvent(nsIDOMEvent* aEvent) MOZ_OVERRIDE
   {
-    NS_ABORT_IF_FALSE(mDocument, "Need an SVG document. Received multiple events?");
+    MOZ_ASSERT(mDocument, "Need an SVG document. Received multiple events?");
 
     // OnSVGDocumentLoaded/OnSVGDocumentError will release our owner's reference
     // to us, so ensure we stick around long enough to complete our work.
@@ -182,10 +183,10 @@ public:
 
     nsAutoString eventType;
     aEvent->GetType(eventType);
-    NS_ABORT_IF_FALSE(eventType.EqualsLiteral("MozSVGAsImageDocumentLoad")  ||
-                      eventType.EqualsLiteral("SVGAbort")                   ||
-                      eventType.EqualsLiteral("SVGError"),
-                      "Received unexpected event");
+    MOZ_ASSERT(eventType.EqualsLiteral("MozSVGAsImageDocumentLoad")  ||
+               eventType.EqualsLiteral("SVGAbort")                   ||
+               eventType.EqualsLiteral("SVGError"),
+               "Received unexpected event");
 
     if (eventType.EqualsLiteral("MozSVGAsImageDocumentLoad")) {
       mImage->OnSVGDocumentLoaded();
@@ -198,16 +199,18 @@ public:
 
   void Cancel()
   {
-    NS_ABORT_IF_FALSE(mDocument, "Duplicate call to Cancel");
-    mDocument->RemoveEventListener(NS_LITERAL_STRING("MozSVGAsImageDocumentLoad"), this, true);
-    mDocument->RemoveEventListener(NS_LITERAL_STRING("SVGAbort"), this, true);
-    mDocument->RemoveEventListener(NS_LITERAL_STRING("SVGError"), this, true);
-    mDocument = nullptr;
+    MOZ_ASSERT(mDocument, "Duplicate call to Cancel");
+    if (mDocument) {
+      mDocument->RemoveEventListener(NS_LITERAL_STRING("MozSVGAsImageDocumentLoad"), this, true);
+      mDocument->RemoveEventListener(NS_LITERAL_STRING("SVGAbort"), this, true);
+      mDocument->RemoveEventListener(NS_LITERAL_STRING("SVGError"), this, true);
+      mDocument = nullptr;
+    }
   }
 
 private:
   nsCOMPtr<nsIDocument> mDocument;
-  VectorImage* mImage; // Raw pointer to owner.
+  VectorImage* const mImage; // Raw pointer to owner.
 };
 
 NS_IMPL_ISUPPORTS1(SVGLoadEventListener, nsIDOMEventListener)
@@ -239,7 +242,7 @@ SVGDrawingCallback::operator()(gfxContext* aContext,
                                const gfxPattern::GraphicsFilter& aFilter,
                                const gfxMatrix& aTransform)
 {
-  NS_ABORT_IF_FALSE(mSVGDocumentWrapper, "need an SVGDocumentWrapper");
+  MOZ_ASSERT(mSVGDocumentWrapper, "need an SVGDocumentWrapper");
 
   // Get (& sanity-check) the helper-doc's presShell
   nsCOMPtr<nsIPresShell> presShell;
@@ -247,7 +250,7 @@ SVGDrawingCallback::operator()(gfxContext* aContext,
     NS_WARNING("Unable to draw -- presShell lookup failed");
     return false;
   }
-  NS_ABORT_IF_FALSE(presShell, "GetPresShell succeeded but returned null");
+  MOZ_ASSERT(presShell, "GetPresShell succeeded but returned null");
 
   gfxContextAutoSaveRestore contextRestorer(aContext);
 
@@ -260,7 +263,7 @@ SVGDrawingCallback::operator()(gfxContext* aContext,
   aContext->Multiply(gfxMatrix(aTransform).Invert());
 
   nsPresContext* presContext = presShell->GetPresContext();
-  NS_ABORT_IF_FALSE(presContext, "pres shell w/out pres context");
+  MOZ_ASSERT(presContext, "pres shell w/out pres context");
 
   nsRect svgRect(presContext->DevPixelsToAppUnits(mViewport.x),
                  presContext->DevPixelsToAppUnits(mViewport.y),
@@ -302,6 +305,7 @@ VectorImage::VectorImage(imgStatusTracker* aStatusTracker,
 
 VectorImage::~VectorImage()
 {
+  CancelAllListeners();
 }
 
 //------------------------------------------------------------------------------
@@ -315,10 +319,10 @@ VectorImage::Init(const char* aMimeType,
   if (mIsInitialized)
     return NS_ERROR_ILLEGAL_VALUE;
 
-  NS_ABORT_IF_FALSE(!mIsFullyLoaded && !mHaveAnimations &&
-                    !mHaveRestrictedRegion && !mError,
-                    "Flags unexpectedly set before initialization");
-  NS_ABORT_IF_FALSE(!strcmp(aMimeType, IMAGE_SVG_XML), "Unexpected mimetype");
+  MOZ_ASSERT(!mIsFullyLoaded && !mHaveAnimations &&
+             !mHaveRestrictedRegion && !mError,
+             "Flags unexpectedly set before initialization");
+  MOZ_ASSERT(!strcmp(aMimeType, IMAGE_SVG_XML), "Unexpected mimetype");
 
   mIsInitialized = true;
   return NS_OK;
@@ -364,7 +368,7 @@ VectorImage::OnImageDataComplete(nsIRequest* aRequest,
                                  nsresult aStatus,
                                  bool aLastPart)
 {
-  NS_ABORT_IF_FALSE(mStopRequest.empty(), "Duplicate call to OnImageDataComplete?");
+  MOZ_ASSERT(mStopRequest.empty(), "Duplicate call to OnImageDataComplete?");
 
   // Call our internal OnStopRequest method, which only talks to our embedded
   // SVG document. This won't have any effect on our imgStatusTracker.
@@ -411,7 +415,7 @@ VectorImage::StartAnimation()
   if (mError)
     return NS_ERROR_FAILURE;
 
-  NS_ABORT_IF_FALSE(ShouldAnimate(), "Should not animate!");
+  MOZ_ASSERT(ShouldAnimate(), "Should not animate!");
 
   mSVGDocumentWrapper->StartAnimation();
   return NS_OK;
@@ -423,8 +427,8 @@ VectorImage::StopAnimation()
   if (mError)
     return NS_ERROR_FAILURE;
 
-  NS_ABORT_IF_FALSE(mIsFullyLoaded && mHaveAnimations,
-                    "Should not have been animating!");
+  MOZ_ASSERT(mIsFullyLoaded && mHaveAnimations,
+             "Should not have been animating!");
 
   mSVGDocumentWrapper->StopAnimation();
   return NS_OK;
@@ -490,10 +494,10 @@ VectorImage::GetHeight(int32_t* aHeight)
 NS_IMETHODIMP
 VectorImage::GetIntrinsicSize(nsSize* aSize)
 {
-  nsIFrame* rootFrame = GetRootLayoutFrame();
-  if (!rootFrame)
+  if (mError || !mIsFullyLoaded)
     return NS_ERROR_FAILURE;
 
+  nsIFrame* rootFrame = mSVGDocumentWrapper->GetRootLayoutFrame();
   *aSize = nsSize(-1, -1);
   nsIFrame::IntrinsicSize rfSize = rootFrame->GetIntrinsicSize();
   if (rfSize.width.GetUnit() == eStyleUnit_Coord)
@@ -509,10 +513,10 @@ VectorImage::GetIntrinsicSize(nsSize* aSize)
 NS_IMETHODIMP
 VectorImage::GetIntrinsicRatio(nsSize* aRatio)
 {
-  nsIFrame* rootFrame = GetRootLayoutFrame();
-  if (!rootFrame)
+  if (mError || !mIsFullyLoaded)
     return NS_ERROR_FAILURE;
 
+  nsIFrame* rootFrame = mSVGDocumentWrapper->GetRootLayoutFrame();
   *aRatio = rootFrame->GetIntrinsicRatio();
   return NS_OK;
 }
@@ -568,33 +572,6 @@ VectorImage::GetFrame(uint32_t aWhichFrame,
                       gfxASurface** _retval)
 {
   NS_ENSURE_ARG_POINTER(_retval);
-  nsRefPtr<gfxImageSurface> surface;
-  nsresult rv = CopyFrame(aWhichFrame, aFlags, getter_AddRefs(surface));
-  if (NS_SUCCEEDED(rv)) {
-    *_retval = surface.forget().get();
-  }
-  return rv;
-}
-
-//******************************************************************************
-/* [noscript] ImageContainer getImageContainer(); */
-NS_IMETHODIMP
-VectorImage::GetImageContainer(LayerManager* aManager,
-                               mozilla::layers::ImageContainer** _retval)
-{
-  *_retval = nullptr;
-  return NS_OK;
-}
-
-//******************************************************************************
-/* [noscript] gfxImageSurface copyFrame(in uint32_t aWhichFrame,
- *                                      in uint32_t aFlags); */
-NS_IMETHODIMP
-VectorImage::CopyFrame(uint32_t aWhichFrame,
-                       uint32_t aFlags,
-                       gfxImageSurface** _retval)
-{
-  NS_ENSURE_ARG_POINTER(_retval);
   // XXXdholbert NOTE: Currently assuming FRAME_CURRENT for simplicity.
   // Could handle FRAME_FIRST by saving helper-doc current time, seeking
   // to time 0, rendering, and then seeking to saved time.
@@ -638,12 +615,22 @@ VectorImage::CopyFrame(uint32_t aWhichFrame,
                      gfxRect(gfxPoint(0,0), gfxIntSize(imageIntSize.width,
                                                        imageIntSize.height)),
                      nsIntRect(nsIntPoint(0,0), imageIntSize),
-                     imageIntSize, aFlags);
+                     imageIntSize, nullptr, aFlags);
   if (NS_SUCCEEDED(rv)) {
     *_retval = surface.forget().get();
   }
 
   return rv;
+}
+
+//******************************************************************************
+/* [noscript] ImageContainer getImageContainer(); */
+NS_IMETHODIMP
+VectorImage::GetImageContainer(LayerManager* aManager,
+                               mozilla::layers::ImageContainer** _retval)
+{
+  *_retval = nullptr;
+  return NS_OK;
 }
 
 //******************************************************************************
@@ -694,7 +681,6 @@ VectorImage::ExtractFrame(uint32_t aWhichFrame,
   return NS_OK;
 }
 
-
 //******************************************************************************
 /* [noscript] void draw(in gfxContext aContext,
  *                      in gfxGraphicsFilter aFilter,
@@ -702,6 +688,7 @@ VectorImage::ExtractFrame(uint32_t aWhichFrame,
  *                      [const] in gfxRect aFill,
  *                      [const] in nsIntRect aSubimage,
  *                      [const] in nsIntSize aViewportSize,
+ *                      [const] in SVGImageContext aSVGContext,
  *                      in uint32_t aFlags); */
 NS_IMETHODIMP
 VectorImage::Draw(gfxContext* aContext,
@@ -710,6 +697,7 @@ VectorImage::Draw(gfxContext* aContext,
                   const gfxRect& aFill,
                   const nsIntRect& aSubimage,
                   const nsIntSize& aViewportSize,
+                  const SVGImageContext* aSVGContext,
                   uint32_t aFlags)
 {
   NS_ENSURE_ARG_POINTER(aContext);
@@ -720,8 +708,11 @@ VectorImage::Draw(gfxContext* aContext,
     NS_WARNING("Refusing to make re-entrant call to VectorImage::Draw");
     return NS_ERROR_FAILURE;
   }
+  AutoRestore<bool> autoRestoreIsDrawing(mIsDrawing);
   mIsDrawing = true;
 
+  AutoSVGRenderingState autoSVGState(aSVGContext,
+                                     mSVGDocumentWrapper->GetRootSVGElem());
   mSVGDocumentWrapper->UpdateViewportBounds(aViewportSize);
   mSVGDocumentWrapper->FlushImageTransformInvalidation();
 
@@ -753,19 +744,14 @@ VectorImage::Draw(gfxContext* aContext,
                              subimage, sourceRect, imageRect, aFill,
                              gfxASurface::ImageFormatARGB32, aFilter);
 
-  mIsDrawing = false;
+  MOZ_ASSERT(mRenderingObserver || mHaveRestrictedRegion, 
+      "Should have a rendering observer by now unless ExtractFrame created us");
+  if (mRenderingObserver) {
+    // Allow ourselves to fire FrameChanged and OnStopFrame again.
+    mRenderingObserver->ResumeListening();
+  }
+
   return NS_OK;
-}
-
-//******************************************************************************
-/* [notxpcom] nsIFrame GetRootLayoutFrame() */
-nsIFrame*
-VectorImage::GetRootLayoutFrame()
-{
-  if (mError)
-    return nullptr;
-
-  return mSVGDocumentWrapper->GetRootLayoutFrame();
 }
 
 //******************************************************************************
@@ -837,8 +823,8 @@ VectorImage::ResetAnimation()
 NS_IMETHODIMP
 VectorImage::OnStartRequest(nsIRequest* aRequest, nsISupports* aCtxt)
 {
-  NS_ABORT_IF_FALSE(!mSVGDocumentWrapper,
-                    "Repeated call to OnStartRequest -- can this happen?");
+  MOZ_ASSERT(!mSVGDocumentWrapper,
+             "Repeated call to OnStartRequest -- can this happen?");
 
   mSVGDocumentWrapper = new SVGDocumentWrapper();
   nsresult rv = mSVGDocumentWrapper->OnStartRequest(aRequest, aCtxt);
@@ -884,8 +870,8 @@ VectorImage::OnStopRequest(nsIRequest* aRequest, nsISupports* aCtxt,
 void
 VectorImage::OnSVGDocumentParsed()
 {
-  NS_ABORT_IF_FALSE(mParseCompleteListener, "Should have the parse complete listener");
-  NS_ABORT_IF_FALSE(mLoadEventListener, "Should have the load event listener");
+  MOZ_ASSERT(mParseCompleteListener, "Should have the parse complete listener");
+  MOZ_ASSERT(mLoadEventListener, "Should have the load event listener");
 
   if (!mSVGDocumentWrapper->GetRootSVGElem()) {
     // This is an invalid SVG document. It may have failed to parse, or it may
@@ -899,9 +885,6 @@ VectorImage::OnSVGDocumentParsed()
 void
 VectorImage::CancelAllListeners()
 {
-  NS_ABORT_IF_FALSE(mParseCompleteListener, "Should have the parse complete listener");
-  NS_ABORT_IF_FALSE(mLoadEventListener, "Should have the load event listener");
-
   if (mParseCompleteListener) {
     mParseCompleteListener->Cancel();
     mParseCompleteListener = nullptr;
@@ -915,10 +898,11 @@ VectorImage::CancelAllListeners()
 void
 VectorImage::OnSVGDocumentLoaded()
 {
-  NS_ABORT_IF_FALSE(mSVGDocumentWrapper->GetRootSVGElem(), "Should have parsed successfully");
-  NS_ABORT_IF_FALSE(!mIsFullyLoaded && !mHaveAnimations,
-                    "These flags shouldn't get set until OnSVGDocumentLoaded. "
-                    "Duplicate calls to OnSVGDocumentLoaded?");
+  MOZ_ASSERT(mSVGDocumentWrapper->GetRootSVGElem(),
+             "Should have parsed successfully");
+  MOZ_ASSERT(!mIsFullyLoaded && !mHaveAnimations,
+             "These flags shouldn't get set until OnSVGDocumentLoaded. "
+             "Duplicate calls to OnSVGDocumentLoaded?");
 
   CancelAllListeners();
 

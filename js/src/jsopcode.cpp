@@ -1226,9 +1226,6 @@ ExpressionDecompiler::decompilePC(jsbytecode *pc)
 
     JSOp op = (JSOp)*pc;
 
-    // None of these stack-writing ops generates novel values.
-    JS_ASSERT(op != JSOP_CASE && op != JSOP_DUP && op != JSOP_DUP2);
-
     if (const char *token = CodeToken[op]) {
         // Handle simple cases of binary and unary operators.
         switch (js_CodeSpec[op].nuses) {
@@ -1642,12 +1639,8 @@ DecompileArgumentFromStack(JSContext *cx, int formalIndex, char **res)
      */
     ++frameIter;
 
-    /*
-     * If this frame isn't a script, we can't decompile. Even if it is a
-     * script but we popped a call frame during the last bump, assume that we
-     * just came from a frameless native and bail conservatively.
-     */
-    if (frameIter.done() || frameIter.poppedCallDuringSettle() || !frameIter.isScript())
+    /* If this frame isn't a script, we can't decompile. */
+    if (frameIter.done() || !frameIter.isScript())
         return true;
 
     RootedScript script(cx, frameIter.script());
@@ -1660,6 +1653,10 @@ DecompileArgumentFromStack(JSContext *cx, int formalIndex, char **res)
     JS_ASSERT(script->code <= current && current < script->code + script->length);
 
     if (current < script->main())
+        return true;
+
+    /* Don't handle getters, setters or calls from fun.call/fun.apply. */
+    if (JSOp(*current) != JSOP_CALL || formalIndex >= GET_ARGC(current))
         return true;
 
     PCStack pcStack;
@@ -2256,6 +2253,9 @@ GetPCCountJSON(JSContext *cx, const ScriptAndCounts &sac, StringBuffer &buf)
         return false;
 
     buf.append(str);
+
+    AppendJSONProperty(buf, "line");
+    NumberValueToStringBuffer(cx, Int32Value(script->lineno), buf);
 
     AppendJSONProperty(buf, "opcodes");
     buf.append('[');

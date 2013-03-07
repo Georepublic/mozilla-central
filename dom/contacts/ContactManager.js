@@ -390,6 +390,18 @@ ContactManager.prototype = {
     return contacts;
   },
 
+  _fireSuccessOrDone: function(aCursor, aResult) {
+    if (aResult == null) {
+      Services.DOMRequest.fireDone(aCursor);
+    } else {
+      Services.DOMRequest.fireSuccess(aCursor, aResult);
+    }
+  },
+
+  _pushArray: function(aArr1, aArr2) {
+    aArr1.push.apply(aArr1, aArr2);
+  },
+
   receiveMessage: function(aMessage) {
     if (DEBUG) debug("receiveMessage: " + aMessage.name);
     let msg = aMessage.json;
@@ -407,12 +419,17 @@ ContactManager.prototype = {
         }
         break;
       case "Contacts:GetAll:Next":
-        let cursor = this._cursorData[msg.cursorId];
-        let contact = msg.contact ? this._convertContact(msg.contact) : null;
-        if (contact == null) {
-          Services.DOMRequest.fireDone(cursor);
+        let data = this._cursorData[msg.cursorId];
+        let result = contacts ? this._convertContacts(contacts) : [null];
+        if (data.waitingForNext) {
+          if (DEBUG) debug("cursor waiting for contact, sending");
+          data.waitingForNext = false;
+          let contact = result.shift();
+          this._pushArray(data.cachedContacts, result);
+          this._fireSuccessOrDone(data.cursor, contact);
         } else {
-          Services.DOMRequest.fireSuccess(cursor, contact);
+          if (DEBUG) debug("cursor not waiting, saving");
+          this._pushArray(data.cachedContacts, result);
         }
         break;
       case "Contacts:GetSimContacts:Return:OK":
@@ -424,6 +441,13 @@ ContactManager.prototype = {
 
             if (c.email) {
               prop.email = [{value: c.email}];
+            }
+
+            // ANR - Additional Number
+            if (c.anr) {
+              for (let i = 0; i < c.anr.length; i++) {
+                prop.tel.push({value: c.anr[i]});
+              }
             }
 
             contact.init(prop);
@@ -591,12 +615,16 @@ ContactManager.prototype = {
 
   createCursor: function CM_createCursor(aRequest) {
     let id = this._getRandomId();
-    let cursor = Services.DOMRequest.createCursor(this._window, function() {
-      this.handleContinue(id);
-    }.bind(this));
+    let data = {
+      cursor: Services.DOMRequest.createCursor(this._window, function() {
+        this.handleContinue(id);
+      }.bind(this)),
+      cachedContacts: [],
+      waitingForNext: true,
+    };
     if (DEBUG) debug("saved cursor id: " + id);
-    this._cursorData[id] = cursor;
-    return [id, cursor];
+    this._cursorData[id] = data;
+    return [id, data.cursor];
   },
 
   getAll: function CM_getAll(aOptions) {
@@ -612,9 +640,15 @@ ContactManager.prototype = {
 
   handleContinue: function CM_handleContinue(aCursorId) {
     if (DEBUG) debug("handleContinue: " + aCursorId);
-    cpmm.sendAsyncMessage("Contacts:GetAll:Continue", {
-      cursorId: aCursorId
-    });
+    let data = this._cursorData[aCursorId];
+    if (data.cachedContacts.length > 0) {
+      if (DEBUG) debug("contact in cache");
+      let contact = data.cachedContacts.shift();
+      this._fireSuccessOrDone(data.cursor, contact);
+    } else {
+      if (DEBUG) debug("waiting for contact");
+      data.waitingForNext = true;
+    }
   },
 
   remove: function removeContact(aRecord) {

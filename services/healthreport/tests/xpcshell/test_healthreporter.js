@@ -88,7 +88,7 @@ function shutdownServer(server) {
 }
 
 function run_test() {
-  run_next_test();
+  makeFakeAppDir().then(run_next_test, do_throw);
 }
 
 add_task(function test_constructor() {
@@ -146,6 +146,21 @@ add_task(function test_shutdown_collector_in_progress() {
   reporter.onCollectorInitialized = function () {
     print("Faking shutdown during collector initialization.");
     reporter._initiateShutdown();
+  };
+
+  // This will hang if shutdown logic is busted.
+  reporter._waitForShutdown();
+  do_check_eq(reporter.collectorShutdownCount, 1);
+  do_check_eq(reporter.storageCloseCount, 1);
+});
+
+// Simulates an error during collector initialization and verifies we shut down.
+add_task(function test_shutdown_when_collector_errors() {
+  let reporter = yield getJustReporter("shutdown_when_collector_errors", SERVER_URI, true);
+
+  reporter.onInitializeCollectorFinished = function () {
+    print("Throwing fake error.");
+    throw new Error("Fake error during collector initialization.");
   };
 
   // This will hang if shutdown logic is busted.
@@ -530,5 +545,27 @@ add_task(function test_upload_save_payload() {
 
   reporter._shutdown();
   yield shutdownServer(server);
+});
+
+add_task(function test_error_message_scrubbing() {
+  let reporter = yield getReporter("error_message_scrubbing");
+
+  try {
+    let profile = Services.dirsvc.get("ProfD", Ci.nsIFile).path;
+    reporter._recordError("Foo " + profile);
+
+    do_check_eq(reporter._errors.length, 1);
+    do_check_eq(reporter._errors[0], "Foo <ProfilePath>");
+
+    reporter._errors = [];
+
+    let appdata = Services.dirsvc.get("UAppData", Ci.nsIFile);
+    let uri = Services.io.newFileURI(appdata);
+
+    reporter._recordError("Foo " + uri.spec);
+    do_check_eq(reporter._errors[0], "Foo <AppDataURI>");
+  } finally {
+    reporter._shutdown();
+  }
 });
 

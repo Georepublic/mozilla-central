@@ -431,7 +431,7 @@ pref("dom.ipc.content.nice", 1);
 
 // product URLs
 // The breakpad report server to link to in about:crashes
-pref("breakpad.reportURL", "http://crash-stats.mozilla.com/report/index/");
+pref("breakpad.reportURL", "https://crash-stats.mozilla.com/report/index/");
 pref("app.releaseNotesURL", "http://www.mozilla.com/%LOCALE%/mobile/%VERSION%/releasenotes/");
 pref("app.sync.tutorialURL", "https://support.mozilla.org/kb/sync-firefox-between-desktop-and-mobile");
 pref("app.support.baseURL", "http://support.mozilla.org/mobile");
@@ -657,3 +657,5 @@ pref("media.realtime_decoder.enabled", true);
 
 // Mobile manages state by autodetection
 pref("network.manage-offline-status", true);
+
+pref("layout.imagevisibility.enabled", false);

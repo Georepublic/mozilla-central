@@ -986,11 +986,7 @@ RasterImage::GetAnimated(bool *aAnimated)
   return NS_OK;
 }
 
-
-//******************************************************************************
-/* [noscript] gfxImageSurface copyFrame(in uint32_t aWhichFrame,
- *                                      in uint32_t aFlags); */
-NS_IMETHODIMP
+nsresult
 RasterImage::CopyFrame(uint32_t aWhichFrame,
                        uint32_t aFlags,
                        gfxImageSurface **_retval)
@@ -3049,9 +3045,10 @@ RasterImage::DrawWithPreDownscaleIfNeeded(imgFrame *aFrame,
     }
   }
 
-  nsIntMargin padding(framerect.x, framerect.y,
+  nsIntMargin padding(framerect.y,
                       mSize.width - framerect.XMost(),
-                      mSize.height - framerect.YMost());
+                      mSize.height - framerect.YMost(),
+                      framerect.x);
 
   frame->Draw(aContext, aFilter, userSpaceToImageSpace, aFill, padding, subimage);
 }
@@ -3063,6 +3060,7 @@ RasterImage::DrawWithPreDownscaleIfNeeded(imgFrame *aFrame,
  *                      [const] in gfxRect aFill,
  *                      [const] in nsIntRect aSubimage,
  *                      [const] in nsIntSize aViewportSize,
+ *                      [const] in SVGImageContext aSVGContext,
  *                      in uint32_t aFlags); */
 NS_IMETHODIMP
 RasterImage::Draw(gfxContext *aContext,
@@ -3071,6 +3069,7 @@ RasterImage::Draw(gfxContext *aContext,
                   const gfxRect &aFill,
                   const nsIntRect &aSubimage,
                   const nsIntSize& /*aViewportSize - ignored*/,
+                  const SVGImageContext* /*aSVGContext - ignored*/,
                   uint32_t aFlags)
 {
   if (mError)
@@ -3107,6 +3106,15 @@ RasterImage::Draw(gfxContext *aContext,
     DiscardTracker::Reset(&mDiscardTrackerNode);
   }
 
+  // We would like to just check if we have a zero lock count, but we can't do
+  // that for animated images because in EnsureAnimExists we lock the image and
+  // never unlock so that animated images always have their lock count >= 1. In
+  // that case we use our animation consumers count as a proxy for lock count.
+  if (mLockCount == 0 || (mAnim && mAnimationConsumers == 0)) {
+    if (mStatusTracker)
+      mStatusTracker->GetDecoderObserver()->OnUnlockedDraw();
+  }
+
   // We use !mDecoded && mHasSourceData to mean discarded.
   if (!mDecoded && mHasSourceData) {
       mDrawStartTime = TimeStamp::Now();
@@ -3137,14 +3145,6 @@ RasterImage::Draw(gfxContext *aContext,
   }
 
   return NS_OK;
-}
-
-//******************************************************************************
-/* [notxpcom] nsIFrame GetRootLayoutFrame() */
-nsIFrame*
-RasterImage::GetRootLayoutFrame()
-{
-  return nullptr;
 }
 
 //******************************************************************************

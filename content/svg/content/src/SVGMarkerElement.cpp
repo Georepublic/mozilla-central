@@ -321,7 +321,7 @@ SVGMarkerElement::GetMarkerTransform(float aStrokeWidth,
 nsSVGViewBoxRect
 SVGMarkerElement::GetViewBoxRect()
 {
-  if (mViewBox.IsExplicitlySet()) {
+  if (mViewBox.HasRect()) {
     return mViewBox.GetAnimValue();
   }
   return nsSVGViewBoxRect(
@@ -345,8 +345,7 @@ SVGMarkerElement::GetViewBoxTransform()
                       "Rendering should be disabled");
 
     gfxMatrix viewBoxTM =
-      SVGContentUtils::GetViewBoxTransform(this,
-                                           viewportWidth, viewportHeight,
+      SVGContentUtils::GetViewBoxTransform(viewportWidth, viewportHeight,
                                            viewbox.x, viewbox.y,
                                            viewbox.width, viewbox.height,
                                            mPreserveAspectRatio);

@@ -97,9 +97,11 @@ ComputeThis(JSContext *cx, AbstractFramePtr frame)
          * |this| slot. If we lazily wrap a primitive |this| in an eval function frame, the
          * eval's frame will get the wrapper, but the function's frame will not. To prevent
          * this, we always wrap a function's |this| before pushing an eval frame, and should
-         * thus never see an unwrapped primitive in a non-strict eval function frame.
+         * thus never see an unwrapped primitive in a non-strict eval function frame. Null
+         * and undefined |this| values will unwrap to the same object in the function and
+         * eval frames, so are not required to be wrapped.
          */
-        JS_ASSERT(!frame.isEvalFrame());
+        JS_ASSERT_IF(frame.isEvalFrame(), thisv.isUndefined() || thisv.isNull());
     }
     bool modified;
     if (!BoxNonStrictThis(cx, &thisv, &modified))
@@ -1119,7 +1121,9 @@ class FastInvokeGuard
     RootedFunction fun_;
     RootedScript script_;
 #ifdef JS_ION
-    ion::IonContext ictx_;
+    // Constructing an IonContext is pretty expensive due to the TLS access,
+    // so only do this if we have to.
+    mozilla::Maybe<ion::IonContext> ictx_;
     bool useIon_;
 #endif
 
@@ -1128,7 +1132,6 @@ class FastInvokeGuard
       : fun_(cx)
       , script_(cx)
 #ifdef JS_ION
-      , ictx_(cx, cx->compartment, NULL)
       , useIon_(ion::IsEnabled(cx))
 #endif
     {
@@ -1153,6 +1156,8 @@ class FastInvokeGuard
     bool invoke(JSContext *cx) {
 #ifdef JS_ION
         if (useIon_ && fun_) {
+            if (ictx_.empty())
+                ictx_.construct(cx, cx->compartment, (js::ion::TempAllocator *)NULL);
             JS_ASSERT(fun_->nonLazyScript() == script_);
 
             ion::MethodStatus status = ion::CanEnterUsingFastInvoke(cx, script_, args_.length());

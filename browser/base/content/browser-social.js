@@ -31,7 +31,20 @@ let SocialUI = {
       SocialChatBar.update();
     });
 
-    Social.init(this._providerReady.bind(this));
+    SocialChatBar.init();
+    SocialShareButton.init();
+    SocialMenu.init();
+    SocialToolbar.init();
+    SocialSidebar.init();
+
+    Social.init();
+    // If social was previously initialized it isn't going to notify observers
+    // about the provider being set or the list of providers changing, so
+    // handle those now.
+    if (Social.provider) {
+      this.observe(null, "social:provider-set", Social.provider.origin);
+      this.observe(null, "social:providers-changed", null);
+    }
   },
 
   // Called on window unload
@@ -46,18 +59,6 @@ let SocialUI = {
 
     Services.prefs.removeObserver("social.sidebar.open", this);
     Services.prefs.removeObserver("social.toast-notifications.enabled", this);
-  },
-
-  // Called once, after window load, once Social.jsm's provider has been set.
-  _providerReady: function SocialUI_providerReady() {
-    this._updateActiveUI();
-    this._updateMenuItems();
-
-    SocialChatBar.update();
-    SocialShareButton.init();
-    SocialMenu.populate();
-    SocialToolbar.init();
-    SocialSidebar.init();
   },
 
   // Social.provider has changed, update any state that depends on it.
@@ -201,19 +202,21 @@ let SocialUI = {
   // This handles "ActivateSocialFeature" events fired against content documents
   // in this window.
   _activationEventHandler: function SocialUI_activationHandler(e) {
-    let targetDoc = e.target;
-
-    // Event must be fired against the document
+    let targetDoc;
+    let node;
+    if (e.target instanceof HTMLDocument) {
+      // version 0 support
+      targetDoc = e.target;
+      node = targetDoc.documentElement
+    } else {
+      targetDoc = e.target.ownerDocument;
+      node = e.target;
+    }
     if (!(targetDoc instanceof HTMLDocument))
       return;
 
-    // Ignore events fired in background tabs
-    if (targetDoc.defaultView.top != content)
-      return;
-
-    // Check that the associated document's origin is in our whitelist
-    let providerOrigin = targetDoc.nodePrincipal.origin;
-    if (!Social.canActivateOrigin(providerOrigin))
+    // Ignore events fired in background tabs or iframes
+    if (targetDoc.defaultView != content)
       return;
 
     // If we are in PB mode, we silently do nothing (bug 829404 exists to
@@ -227,11 +230,34 @@ let SocialUI = {
       return;
     Social.lastEventReceived = now;
 
+    // We only want to activate if it is as a result of user input.
+    let dwu = window.QueryInterface(Ci.nsIInterfaceRequestor)
+                    .getInterface(Ci.nsIDOMWindowUtils);
+    if (!dwu.isHandlingUserInput) {
+      Cu.reportError("attempt to activate provider without user input from " + targetDoc.nodePrincipal.origin);
+      return;
+    }
+
+    let data = node.getAttribute("data-service");
+    if (data) {
+      try {
+        data = JSON.parse(data);
+      } catch(e) {
+        Cu.reportError("Social Service manifest parse error: "+e);
+        return;
+      }
+    }
+    Social.installProvider(targetDoc.location.href, data, function(manifest) {
+      this.doActivation(manifest.origin);
+    }.bind(this));
+  },
+
+  doActivation: function SocialUI_doActivation(origin) {
     // Keep track of the old provider in case of undo
     let oldOrigin = Social.provider ? Social.provider.origin : "";
 
     // Enable the social functionality, and indicate that it was activated
-    Social.activateFromOrigin(providerOrigin, function(provider) {
+    Social.activateFromOrigin(origin, function(provider) {
       // Provider to activate may not have been found
       if (!provider)
         return;
@@ -270,6 +296,7 @@ let SocialUI = {
     let oldOrigin = this.notificationPanel.getAttribute("oldorigin");
     Social.deactivateFromOrigin(origin, oldOrigin);
     this.notificationPanel.hidePopup();
+    Social.uninstallProvider(origin);
   },
 
   get notificationPanel() {
@@ -335,6 +362,8 @@ let SocialUI = {
 }
 
 let SocialChatBar = {
+  init: function() {
+  },
   get chatbar() {
     return document.getElementById("pinnedchats");
   },
@@ -348,14 +377,21 @@ let SocialChatBar = {
     return !!this.chatbar.firstElementChild;
   },
   openChat: function(aProvider, aURL, aCallback, aMode) {
-    if (this.isAvailable)
-      this.chatbar.openChat(aProvider, aURL, aCallback, aMode);
+    if (!this.isAvailable)
+      return false;
+    this.chatbar.openChat(aProvider, aURL, aCallback, aMode);
+    // We only want to focus the chat if it is as a result of user input.
+    let dwu = window.QueryInterface(Ci.nsIInterfaceRequestor)
+                    .getInterface(Ci.nsIDOMWindowUtils);
+    if (dwu.isHandlingUserInput)
+      this.chatbar.focus();
+    return true;
   },
   update: function() {
     let command = document.getElementById("Social:FocusChat");
     if (!this.isAvailable) {
       this.chatbar.removeAll();
-      command.hidden = true;
+      this.chatbar.hidden = command.hidden = true;
     } else {
       this.chatbar.hidden = command.hidden = document.mozFullScreen;
     }
@@ -556,7 +592,6 @@ let SocialFlyout = {
 let SocialShareButton = {
   // Called once, after window load, when the Social.provider object is initialized
   init: function SSB_init() {
-    this.updateProvider();
   },
 
   // Called when the Social.provider changes
@@ -575,7 +610,11 @@ let SocialShareButton = {
     if (profile && profile.displayName) {
       profileRow.hidden = false;
       let portrait = document.getElementById("socialUserPortrait");
-      portrait.setAttribute("src", profile.portrait || "chrome://global/skin/icons/information-32.png");
+      if (profile.portrait) {
+        portrait.setAttribute("src", profile.portrait);
+      } else {
+        portrait.removeAttribute("src");
+      }
       let displayName = document.getElementById("socialUserDisplayName");
       displayName.setAttribute("label", profile.displayName);
     } else {
@@ -703,6 +742,9 @@ let SocialShareButton = {
 };
 
 var SocialMenu = {
+  init: function SocialMenu_init() {
+  },
+
   populate: function SocialMenu_populate() {
     let submenu = document.getElementById("menu_social-statusarea-popup");
     let ambientMenuItems = submenu.getElementsByClassName("ambient-menuitem");
@@ -737,11 +779,6 @@ var SocialToolbar = {
   // Called once, after window load, when the Social.provider object is
   // initialized.
   init: function SocialToolbar_init() {
-    let accesskey = gNavigatorBundle.getString("social.removeProvider.accesskey");
-    let removeCommand = document.getElementById("Social:Remove");
-    removeCommand.setAttribute("accesskey", accesskey);
-
-    this.updateProvider();
     this._dynamicResizer = new DynamicResizeWatcher();
   },
 
@@ -749,10 +786,6 @@ var SocialToolbar = {
   updateProvider: function () {
     let provider = Social.provider || Social.defaultProvider;
     if (provider) {
-      let label = gNavigatorBundle.getFormattedString("social.removeProvider.label",
-                                                      [provider.name]);
-      let removeCommand = document.getElementById("Social:Remove");
-      removeCommand.setAttribute("label", label);
       this.button.setAttribute("label", provider.name);
       this.button.setAttribute("tooltiptext", provider.name);
       this.button.style.listStyleImage = "url(" + provider.iconURL + ")";
@@ -799,7 +832,7 @@ var SocialToolbar = {
     if (!Social.provider)
       return;
     let profile = Social.provider.profile || {};
-    let userPortrait = profile.portrait || "chrome://global/skin/icons/information-32.png";
+    let userPortrait = profile.portrait;
 
     let userDetailsBroadcaster = document.getElementById("socialBroadcaster_userDetails");
     let loggedInStatusValue = profile.userName ||
@@ -807,8 +840,13 @@ var SocialToolbar = {
 
     // "image" and "label" are used by Mac's native menus that do not render the menuitem's children
     // elements. "src" and "value" are used by the image/label children on the other platforms.
-    userDetailsBroadcaster.setAttribute("src", userPortrait);
-    userDetailsBroadcaster.setAttribute("image", userPortrait);
+    if (userPortrait) {
+      userDetailsBroadcaster.setAttribute("src", userPortrait);
+      userDetailsBroadcaster.setAttribute("image", userPortrait);
+    } else {
+      userDetailsBroadcaster.removeAttribute("src");
+      userDetailsBroadcaster.removeAttribute("image");
+    }
 
     userDetailsBroadcaster.setAttribute("value", loggedInStatusValue);
     userDetailsBroadcaster.setAttribute("label", loggedInStatusValue);
@@ -1073,7 +1111,6 @@ var SocialSidebar = {
     Social.setErrorListener(sbrowser, this.setSidebarErrorMessage.bind(this));
     // setting isAppTab causes clicks on untargeted links to open new tabs
     sbrowser.docShell.isAppTab = true;
-    this.update();
   },
 
   // Whether the sidebar can be shown for this window.
