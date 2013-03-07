@@ -7,6 +7,7 @@
 MODULE = 'content'
 
 EXPORTS += [
+    'GenericSVGFrameElement.h',
     'SVGAttrValueWrapper.h',
     'SVGStringList.h',
     'nsSVGClass.h',
@@ -63,6 +64,7 @@ EXPORTS.mozilla.dom += [
     'SVGGlobalCoordinateSystemElement.h',
     'SVGGradientElement.h',
     'SVGGraphicsElement.h',
+    'SVGIFrameElement.h',
     'SVGIRect.h',
     'SVGImageElement.h',
     'SVGLineElement.h',
@@ -112,6 +114,7 @@ CPP_SOURCES += [
     'DOMSVGPointList.cpp',
     'DOMSVGStringList.cpp',
     'DOMSVGTransformList.cpp',
+    'GenericSVGFrameElement.cpp',
     'SVGAElement.cpp',
     'SVGAltGlyphElement.cpp',
     'SVGAngle.cpp',
@@ -168,6 +171,7 @@ CPP_SOURCES += [
     'SVGGlobalCoordinateSystemElement.cpp',
     'SVGGradientElement.cpp',
     'SVGGraphicsElement.cpp',
+    'SVGIFrameElement.cpp',
     'SVGImageElement.cpp',
     'SVGIntegerPairSMILType.cpp',
     'SVGLength.cpp',
