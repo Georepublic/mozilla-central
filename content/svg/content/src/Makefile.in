@@ -33,6 +33,7 @@ CPPSRCS		= \
 		DOMSVGTests.cpp \
 		DOMSVGTransform.cpp \
 		DOMSVGTransformList.cpp \
+		GenericSVGFrameElement.cpp \
 		nsDOMSVGZoomEvent.cpp \
 		nsDOMSVGEvent.cpp \
 		nsISVGPoint.cpp \
@@ -87,6 +88,7 @@ CPPSRCS		= \
 		SVGGlobalCoordinateSystemElement.cpp \
 		SVGGradientElement.cpp \
 		SVGGraphicsElement.cpp \
+		SVGIFrameElement.cpp \
 		SVGImageElement.cpp \
 		SVGIntegerPairSMILType.cpp \
 		SVGLength.cpp \
@@ -147,6 +149,7 @@ include $(topsrcdir)/config/config.mk
 FORCE_STATIC_LIB = 1
 
 EXPORTS =  			\
+	GenericSVGFrameElement.h   \
 	nsSVGFeatures.h            \
 	nsSVGRect.h                \
 	SVGAttrValueWrapper.h      \
@@ -177,6 +180,7 @@ EXPORTS_mozilla/dom = \
 	SVGGlobalCoordinateSystemElement.h \
 	SVGGradientElement.h \
 	SVGGraphicsElement.h \
+	SVGIFrameElement.h \
 	SVGImageElement.h \
 	SVGLineElement.h \
 	SVGMarkerElement.h \

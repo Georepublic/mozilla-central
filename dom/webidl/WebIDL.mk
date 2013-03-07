@@ -166,6 +166,7 @@ webidl_files = \
   SVGGlobalCoordinateSystemElement.webidl \
   SVGGradientElement.webidl \
   SVGGraphicsElement.webidl \
+  SVGIFrameElement.webidl \
   SVGImageElement.webidl \
   SVGLengthList.webidl \
   SVGLinearGradientElement.webidl \
