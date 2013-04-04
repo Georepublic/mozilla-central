@@ -19,9 +19,9 @@ namespace mozilla {
 namespace dom {
 
 JSObject*
-SVGIFrameElement::WrapNode(JSContext *aCx, JSObject *aScope, bool *aTriedToWrap)
+SVGIFrameElement::WrapNode(JSContext *aCx, JSObject *aScope)
 {
-  return SVGIFrameElementBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return SVGIFrameElementBinding::Wrap(aCx, aScope, this);
 }
 
   
@@ -62,10 +62,14 @@ NS_INTERFACE_MAP_END_INHERITING(SVGIFrameElementBase)
 NS_IMPL_ADDREF_INHERITED(SVGIFrameElement, nsSVGElement)
 NS_IMPL_RELEASE_INHERITED(SVGIFrameElement, nsSVGElement)
 */
+  /*
 NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, SVGIFrameElementBase,
                              nsIDOMNode, nsIDOMElement,
                              nsIDOMSVGElement)
-
+  */
+NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, SVGIFrameElementBase,
+                             nsIDOMNode, nsIDOMElement,
+                             nsIDOMSVGElement)
 //----------------------------------------------------------------------
 // Implementation
 
@@ -73,7 +77,6 @@ SVGIFrameElement::SVGIFrameElement(already_AddRefed<nsINodeInfo> aNodeInfo,
                                        FromParser aFromParser)
   : SVGIFrameElementBase(aNodeInfo, aFromParser)
 {
-	SetIsDOMBinding();
 }
 
 SVGIFrameElement::~SVGIFrameElement()

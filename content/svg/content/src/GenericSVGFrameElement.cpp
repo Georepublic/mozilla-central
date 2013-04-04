@@ -34,12 +34,14 @@ NS_INTERFACE_MAP_END_INHERITING(nsSVGElement)
 
 NS_IMPL_BOOL_ATTR(GenericSVGFrameElement, Mozbrowser, mozbrowser)
 */
+
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(GenericSVGFrameElement,
                                                   nsSVGElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFrameLoader)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_ISUPPORTS_INHERITED1(GenericSVGFrameElement, GenericSVGFrameElementBase,
                              nsIFrameLoaderOwner)
+
                              //                             nsIDOMMozBrowserFrame,
                              //nsIMozBrowserFrame)
 //NS_IMPL_BOOL_ATTR(GenericSVGFrameElement, Mozbrowser, mozbrowser)

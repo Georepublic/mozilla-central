@@ -11,7 +11,6 @@
 #include "nsCOMPtr.h"
 #include "nsGkAtoms.h"
 #include "nsIURI.h"
-#include "nsIDOMSVGURIReference.h"
 #include "nsSVGElement.h"
 
 NS_IMPL_NS_NEW_NAMESPACED_SVG_ELEMENT(GlobalCoordinateSystem)
@@ -22,9 +21,9 @@ namespace dom {
 //--------------- GlobalCoordinateSystem ------------------
 
 JSObject*
-SVGGlobalCoordinateSystemElement::WrapNode(JSContext *aCx, JSObject *aScope, bool *aTriedToWrap)
+SVGGlobalCoordinateSystemElement::WrapNode(JSContext *aCx, JSObject *aScope)
 {
-  return SVGGlobalCoordinateSystemElementBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return SVGGlobalCoordinateSystemElementBinding::Wrap(aCx, aScope, this);
 }
 
 nsSVGElement::StringInfo SVGGlobalCoordinateSystemElement::sStringInfo[1] =
@@ -33,20 +32,11 @@ nsSVGElement::StringInfo SVGGlobalCoordinateSystemElement::sStringInfo[1] =
 };
 
 //----------------------------------------------------------------------
-// nsISupports methods
-
-NS_IMPL_ISUPPORTS_INHERITED4(SVGGlobalCoordinateSystemElement, SVGGlobalCoordinateSystemElementBase,
-                             nsIDOMNode, nsIDOMElement,
-                             nsIDOMSVGElement,
-                             nsIDOMSVGURIReference)
-  
-//----------------------------------------------------------------------
 // Implementation
 
 SVGGlobalCoordinateSystemElement::SVGGlobalCoordinateSystemElement(already_AddRefed<nsINodeInfo> aNodeInfo)
   : SVGGlobalCoordinateSystemElementBase(aNodeInfo)
 {
-	SetIsDOMBinding();
 }
 
 //----------------------------------------------------------------------
@@ -95,13 +85,6 @@ SVGGlobalCoordinateSystemElement::Href()
   nsCOMPtr<nsIDOMSVGAnimatedString> href;
   mStringAttributes[HREF].ToDOMAnimatedString(getter_AddRefs(href), this);
   return href.forget();
-}
-
-NS_IMETHODIMP
-SVGGlobalCoordinateSystemElement::GetHref(nsIDOMSVGAnimatedString * *aHref)
-{
-  *aHref = Href().get();
-  return NS_OK;
 }
 
 } // namespace dom
