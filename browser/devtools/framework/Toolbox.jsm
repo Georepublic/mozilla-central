@@ -126,7 +126,7 @@ this.Toolbox = function Toolbox(target, selectedTool, hostType) {
   this._toolUnregistered = this._toolUnregistered.bind(this);
   this.destroy = this.destroy.bind(this);
 
-  this._target.once("close", this.destroy);
+  this._target.on("close", this.destroy);
 
   if (!hostType) {
     hostType = Services.prefs.getCharPref(this._prefs.LAST_HOST);
@@ -402,23 +402,32 @@ Toolbox.prototype = {
     let id = toolDefinition.id;
 
     let radio = this.doc.createElement("radio");
-    radio.setAttribute("label", toolDefinition.label);
     radio.className = "toolbox-tab devtools-tab";
     radio.id = "toolbox-tab-" + id;
+    radio.setAttribute("flex", "1");
     radio.setAttribute("toolid", id);
     radio.setAttribute("tooltiptext", toolDefinition.tooltip);
-    if (toolDefinition.icon) {
-      radio.setAttribute("src", toolDefinition.icon);
-    }
 
     radio.addEventListener("command", function(id) {
       this.selectTool(id);
     }.bind(this, id));
 
+    if (toolDefinition.icon) {
+      let image = this.doc.createElement("image");
+      image.setAttribute("src", toolDefinition.icon);
+      radio.appendChild(image);
+    }
+
+    let label = this.doc.createElement("label");
+    label.setAttribute("value", toolDefinition.label)
+    label.setAttribute("crop", "end");
+    label.setAttribute("flex", "1");
+
     let vbox = this.doc.createElement("vbox");
     vbox.className = "toolbox-panel";
     vbox.id = "toolbox-panel-" + id;
 
+    radio.appendChild(label);
     tabs.appendChild(radio);
     deck.appendChild(vbox);
 
@@ -432,11 +441,19 @@ Toolbox.prototype = {
    *        The id of the tool to switch to
    */
   selectTool: function TBOX_selectTool(id) {
-    if (this._currentToolId == id) {
-      return;
-    }
-
     let deferred = Promise.defer();
+
+    let selected = this.doc.querySelector(".devtools-tab[selected]");
+    if (selected) {
+      selected.removeAttribute("selected");
+    }
+    let tab = this.doc.getElementById("toolbox-tab-" + id);
+    tab.setAttribute("selected", "true");
+
+    if (this._currentToolId == id) {
+      // Return the existing panel in order to have a consistent return value.
+      return Promise.resolve(this._toolPanels.get(id));
+    }
 
     if (!this.isReady) {
       throw new Error("Can't select tool, wait for toolbox 'ready' event");
@@ -475,6 +492,7 @@ Toolbox.prototype = {
       iframe.id = "toolbox-panel-iframe-" + id;
       iframe.setAttribute("flex", 1);
       iframe.setAttribute("forceOwnRefreshDriver", "");
+      iframe.tooltip = "aHTMLTooltip";
 
       let vbox = this.doc.getElementById("toolbox-panel-" + id);
       vbox.appendChild(iframe);
@@ -482,7 +500,8 @@ Toolbox.prototype = {
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
 
-        definition.build(iframe.contentWindow, this).then(function(panel) {
+        let built = definition.build(iframe.contentWindow, this);
+        Promise.resolve(built).then(function(panel) {
           this._toolPanels.set(id, panel);
 
           this.emit(id + "-ready", panel);
@@ -686,25 +705,35 @@ Toolbox.prototype = {
     this.off("select", this._refreshHostTitle);
     this.off("host-changed", this._refreshHostTitle);
 
-    let outstanding = [];
+    gDevTools.off("tool-registered", this._toolRegistered);
+    gDevTools.off("tool-unregistered", this._toolUnregistered);
 
-    // Remote targets need to be notified that the toolbox is being torn down.
-    if (this._target && this._target.isRemote) {
-      outstanding.push(this._target.destroy());
-    }
-    this._target = null;
+    let outstanding = [];
 
     for (let [id, panel] of this._toolPanels) {
       outstanding.push(panel.destroy());
     }
 
+    let container = this.doc.getElementById("toolbox-buttons");
+    while(container.firstChild) {
+      container.removeChild(container.firstChild);
+    }
+
     outstanding.push(this._host.destroy());
 
-    gDevTools.off("tool-registered", this._toolRegistered);
-    gDevTools.off("tool-unregistered", this._toolUnregistered);
+    // Targets need to be notified that the toolbox is being torn down, so that
+    // remote protocol connections can be gracefully terminated.
+    if (this._target) {
+      this._target.off("close", this.destroy);
+      outstanding.push(this._target.destroy());
+    }
+    this._target = null;
 
     Promise.all(outstanding).then(function() {
       this.emit("destroyed");
+      // Free _host after the call to destroyed in order to let a chance
+      // to destroyed listeners to still query toolbox attributes
+      this._host = null;
       deferred.resolve();
     }.bind(this));
 

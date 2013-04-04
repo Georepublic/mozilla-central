@@ -20,6 +20,7 @@ namespace mozilla {
 namespace dom {
 
 class Element;
+class HTMLTemplateElement;
 
 class DocumentFragment : public FragmentOrElement,
                          public nsIDOMDocumentFragment
@@ -41,8 +42,7 @@ public:
   {
   }
 
-  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope,
-                             bool *aTriedToWrap);
+  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
 
   // nsIContent
   virtual already_AddRefed<nsINodeInfo>
@@ -102,6 +102,16 @@ public:
     return nullptr;
   }
 
+  HTMLTemplateElement* GetHost() const
+  {
+    return mHost;
+  }
+
+  void SetHost(HTMLTemplateElement* aHost)
+  {
+    mHost = aHost;
+  }
+
 #ifdef DEBUG
   virtual void List(FILE* out, int32_t aIndent) const;
   virtual void DumpContent(FILE* out, int32_t aIndent, bool aDumpAll) const;
@@ -109,6 +119,7 @@ public:
 
 protected:
   nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
+  mozilla::dom::HTMLTemplateElement* mHost; // Weak
 };
 
 } // namespace dom

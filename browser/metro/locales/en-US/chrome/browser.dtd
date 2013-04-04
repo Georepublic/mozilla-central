@@ -7,13 +7,11 @@
 
 <!ENTITY back.label            "Back">
 <!ENTITY forward.label         "Forward">
-<!ENTITY showTabs.label        "Show Tabs">
 <!ENTITY newtab.label          "New Tab">
 <!ENTITY closetab.label        "Close Tab">
-<!ENTITY undoclosetab.label    "Undo Close Tab">
 
-<!ENTITY appbarFindInPage.label    "Find in Page">
-<!ENTITY appbarViewOnDesktop.label "View on Desktop">
+<!ENTITY appbarFindInPage2.label    "Find in page">
+<!ENTITY appbarViewOnDesktop2.label "View on desktop">
 
 <!ENTITY startTopSitesHeader.label        "Top Sites">
 <!ENTITY startBookmarksHeader.label       "Bookmarks">
@@ -38,15 +36,6 @@
 <!ENTITY bookmarksHeader.label     "Bookmarks">
 <!ENTITY allBookmarks.label        "See all bookmarks">
 
-<!ENTITY identity.unverifiedsite2 "This website does not supply identity information.">
-<!ENTITY identity.connectedTo2 "Connected to">
-<!-- Localization note (identity.runBy2)
- The layout of the identity dialog prevents combining this into a single string with
- substitution variables.  If it is difficult to translate the sense of the string
- with that structure, consider a translation which ignores the preceding domain and
- just addresses the organization to follow, e.g. "This site is run by " -->
-<!ENTITY identity.runBy2 "run by">
-
 <!ENTITY consoleHeader.label       "Error Console">
 <!ENTITY consoleAll.label          "All">
 <!ENTITY consoleErrors.label       "Errors">
@@ -60,6 +49,7 @@
 <!ENTITY consoleErrColumn.label    "Column:">
 
 <!--  TEXT CONTEXT MENU -->
+<!ENTITY contextTextCut.label              "Cut">
 <!ENTITY contextTextCopy.label             "Copy">
 <!ENTITY contextTextPaste.label            "Paste">
 <!-- unique item that is only added to the url bar context menu -->
@@ -73,8 +63,8 @@
 <!ENTITY contextBookmarkLinkHref.label     "Bookmark link">
 
 <!-- IMAGE CONTEXT MENU -->
-<!-- l10n: contextSaveImageLib saves an image to the users "pictures library"
-     (Explorer -> left hand side navigation ppane -> Libraries -> Pictures) -->
+<!-- LOCALIZATION NOTE (contextSaveImageLib.label): saves an image to the users "pictures library"
+     (Explorer -> left hand side navigation pane -> Libraries -> Pictures) -->
 <!ENTITY contextSaveImageLib.label         "Save to picture library">
 <!ENTITY contextCopyImage.label            "Copy image">
 <!ENTITY contextCopyImageLocation.label    "Copy image location">
@@ -84,7 +74,3 @@
 <!ENTITY contextSaveVideoLib.label         "Save to video library">
 <!ENTITY contextCopyVideoLocation.label    "Copy video location">
 <!ENTITY contextOpenVideoTab.label         "Open video in new tab">
-
-<!ENTITY pageactions.password.forget "Forget Password">
-<!ENTITY pageactions.reset           "Clear Site Preferences">
-<!ENTITY pageactions.charEncoding    "Character Encoding">

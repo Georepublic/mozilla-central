@@ -83,6 +83,7 @@ nsImageLoadingContent::nsImageLoadingContent()
     mBroken(true),
     mUserDisabled(false),
     mSuppressed(false),
+    mFireEventsOnDecode(false),
     mNewRequestsWillNeedAnimationReset(false),
     mStateChangerDepth(0),
     mCurrentRequestRegistered(false),
@@ -161,6 +162,20 @@ nsImageLoadingContent::Notify(imgIRequest* aRequest,
     return OnStopRequest(aRequest, status);
   }
 
+  if (aType == imgINotificationObserver::DECODE_COMPLETE && mFireEventsOnDecode) {
+    mFireEventsOnDecode = false;
+
+    uint32_t reqStatus;
+    aRequest->GetImageStatus(&reqStatus);
+    if (reqStatus & imgIRequest::STATUS_ERROR) {
+      FireEvent(NS_LITERAL_STRING("error"));
+    } else {
+      FireEvent(NS_LITERAL_STRING("load"));
+    }
+
+    UpdateImageState(true);
+  }
+
   return NS_OK;
 }
 
@@ -213,19 +228,34 @@ nsImageLoadingContent::OnStopRequest(imgIRequest* aRequest,
 
   // XXXkhuey should this be GetOurCurrentDoc?  Decoding if we're not in
   // the document seems silly.
+  bool startedDecoding = false;
   nsIDocument* doc = GetOurOwnerDoc();
   nsIPresShell* shell = doc ? doc->GetShell() : nullptr;
   if (shell && shell->IsVisible() &&
       (!shell->DidInitialize() || shell->IsPaintingSuppressed())) {
 
-    mCurrentRequest->StartDecoding();
+    if (NS_SUCCEEDED(mCurrentRequest->StartDecoding())) {
+      startedDecoding = true;
+    }
   }
 
-  // Fire the appropriate DOM event.
-  if (NS_SUCCEEDED(aStatus)) {
-    FireEvent(NS_LITERAL_STRING("load"));
+  // We want to give the decoder a chance to find errors. If we haven't found
+  // an error yet and we've started decoding, either from the above
+  // StartDecoding or from some other place, we must only fire these events
+  // after we finish decoding.
+  uint32_t reqStatus;
+  aRequest->GetImageStatus(&reqStatus);
+  if (NS_SUCCEEDED(aStatus) && !(reqStatus & imgIRequest::STATUS_ERROR) &&
+      (reqStatus & imgIRequest::STATUS_DECODE_STARTED ||
+       (startedDecoding && !(reqStatus & imgIRequest::STATUS_DECODE_COMPLETE)))) {
+    mFireEventsOnDecode = true;
   } else {
-    FireEvent(NS_LITERAL_STRING("error"));
+    // Fire the appropriate DOM event.
+    if (NS_SUCCEEDED(aStatus)) {
+      FireEvent(NS_LITERAL_STRING("load"));
+    } else {
+      FireEvent(NS_LITERAL_STRING("error"));
+    }
   }
 
   nsCOMPtr<nsINode> thisNode = do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
@@ -596,13 +626,17 @@ NS_IMETHODIMP nsImageLoadingContent::ForceReload()
 NS_IMETHODIMP
 nsImageLoadingContent::BlockOnload(imgIRequest* aRequest)
 {
-  if (aRequest != mCurrentRequest) {
+  if (aRequest == mCurrentRequest) {
+    NS_ASSERTION(!(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD),
+                 "Double BlockOnload!?");
+    mCurrentRequestFlags |= REQUEST_BLOCKS_ONLOAD;
+  } else if (aRequest == mPendingRequest) {
+    NS_ASSERTION(!(mPendingRequestFlags & REQUEST_BLOCKS_ONLOAD),
+                 "Double BlockOnload!?");
+    mPendingRequestFlags |= REQUEST_BLOCKS_ONLOAD;
+  } else {
     return NS_OK;
   }
-
-  NS_ASSERTION(!(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD),
-               "Double BlockOnload!?");
-  mCurrentRequestFlags |= REQUEST_BLOCKS_ONLOAD;
 
   nsIDocument* doc = GetOurCurrentDoc();
   if (doc) {
@@ -615,13 +649,17 @@ nsImageLoadingContent::BlockOnload(imgIRequest* aRequest)
 NS_IMETHODIMP
 nsImageLoadingContent::UnblockOnload(imgIRequest* aRequest)
 {
-  if (aRequest != mCurrentRequest) {
+  if (aRequest == mCurrentRequest) {
+    NS_ASSERTION(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD,
+                 "Double UnblockOnload!?");
+    mCurrentRequestFlags &= ~REQUEST_BLOCKS_ONLOAD;
+  } else if (aRequest == mPendingRequest) {
+    NS_ASSERTION(mPendingRequestFlags & REQUEST_BLOCKS_ONLOAD,
+                 "Double UnblockOnload!?");
+    mPendingRequestFlags &= ~REQUEST_BLOCKS_ONLOAD;
+  } else {
     return NS_OK;
   }
-
-  NS_ASSERTION(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD,
-               "Double UnblockOnload!?");
-  mCurrentRequestFlags &= ~REQUEST_BLOCKS_ONLOAD;
 
   nsIDocument* doc = GetOurCurrentDoc();
   if (doc) {
@@ -1288,20 +1326,33 @@ nsImageLoadingContent::UntrackImage(imgIRequest* aImage, uint32_t aFlags /* = 0 
   MOZ_ASSERT(aImage == mCurrentRequest || aImage == mPendingRequest,
              "Why haven't we heard of this request?");
 
-  // If GetOurDocument() returns null here, we've outlived our document.
-  // That's fine, because the document empties out the tracker and unlocks
-  // all locked images on destruction.
+  // We may not be in the document.  If we're not in the document because it
+  // has already been unlinked that's fine; the document empties out the tracker
+  // and unlocks all locked images on destruction.  If we were really not in the
+  // document we may need to force discarding the image here, since this is the
+  // only chance we have, even though we couldn't possibly have been in the
+  // tracker.
   nsIDocument* doc = GetOurCurrentDoc();
-  if (doc) {
-    if (aImage == mCurrentRequest && (mCurrentRequestFlags & REQUEST_IS_TRACKED)) {
+  if (aImage == mCurrentRequest) {
+    if (doc && (mCurrentRequestFlags & REQUEST_IS_TRACKED)) {
       mCurrentRequestFlags &= ~REQUEST_IS_TRACKED;
       doc->RemoveImage(mCurrentRequest,
                        (aFlags & REQUEST_DISCARD) ? nsIDocument::REQUEST_DISCARD : 0);
     }
-    if (aImage == mPendingRequest && (mPendingRequestFlags & REQUEST_IS_TRACKED)) {
+    else if (aFlags & REQUEST_DISCARD) {
+      // If we're not in the document we may still need to be discarded.
+      aImage->RequestDiscard();
+    }
+  }
+  if (aImage == mPendingRequest) {
+    if (doc && (mPendingRequestFlags & REQUEST_IS_TRACKED)) {
       mPendingRequestFlags &= ~REQUEST_IS_TRACKED;
       doc->RemoveImage(mPendingRequest,
                        (aFlags & REQUEST_DISCARD) ? nsIDocument::REQUEST_DISCARD : 0);
+    }
+    else if (aFlags & REQUEST_DISCARD) {
+      // If we're not in the document we may still need to be discarded.
+      aImage->RequestDiscard();
     }
   }
   return NS_OK;

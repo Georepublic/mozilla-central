@@ -859,7 +859,7 @@ MediaManager::Get() {
   if (!sSingleton) {
     sSingleton = new MediaManager();
 
-    NS_NewThread(getter_AddRefs(sSingleton->mMediaThread));
+    NS_NewNamedThread("MediaManager", getter_AddRefs(sSingleton->mMediaThread));
     LOG(("New Media thread for gum"));
 
     NS_ASSERTION(NS_IsMainThread(), "Only create MediaManager on main thread");
@@ -1272,6 +1272,7 @@ MediaManager::Observe(nsISupports* aSubject, const char* aTopic,
       MutexAutoLock lock(mMutex);
       GetActiveWindows()->Clear();
       mActiveCallbacks.Clear();
+      LOG(("Releasing MediaManager singleton and thread"));
       sSingleton = nullptr;
     }
 

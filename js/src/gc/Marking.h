@@ -98,6 +98,7 @@ DeclMarker(Object, GlobalObject)
 DeclMarker(Object, JSObject)
 DeclMarker(Object, JSFunction)
 DeclMarker(Object, ScopeObject)
+DeclMarker(Object, ArrayBufferObject)
 DeclMarker(Script, JSScript)
 DeclMarker(Shape, Shape)
 DeclMarker(String, JSAtom)
@@ -243,7 +244,7 @@ MarkChildren(JSTracer *trc, JSObject *obj);
  * JS_TraceShapeCycleCollectorChildren.
  */
 void
-MarkCycleCollectorChildren(JSTracer *trc, UnrootedShape shape);
+MarkCycleCollectorChildren(JSTracer *trc, RawShape shape);
 
 void
 PushArena(GCMarker *gcmarker, ArenaHeader *aheader);
@@ -277,6 +278,12 @@ inline void
 Mark(JSTracer *trc, HeapPtr<ion::IonCode> *code, const char *name)
 {
     MarkIonCode(trc, code, name);
+}
+
+inline void
+Mark(JSTracer *trc, JSObject **objp, const char *name)
+{
+    MarkObjectUnbarriered(trc, objp, name);
 }
 
 bool
@@ -384,9 +391,6 @@ TraceKind(JSScript *script)
 
 void
 TraceChildren(JSTracer *trc, void *thing, JSGCTraceKind kind);
-
-void
-CallTracer(JSTracer *trc, void *thing, JSGCTraceKind kind);
 
 } /* namespace js */
 

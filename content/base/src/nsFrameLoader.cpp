@@ -85,7 +85,7 @@
 #include "mozilla/dom/Element.h"
 #include "mozilla/layout/RenderFrameParent.h"
 #include "nsIAppsService.h"
-#include "sampler.h"
+#include "GeckoProfiler.h"
 
 #include "jsapi.h"
 #include "mozilla/dom/HTMLIFrameElement.h"
@@ -413,7 +413,7 @@ nsFrameLoader::ReallyStartLoadingInternal()
 {
   NS_ENSURE_STATE(mURIToLoad && mOwnerContent && mOwnerContent->IsInDoc());
 
-  SAMPLE_LABEL("nsFrameLoader", "ReallyStartLoading");
+  PROFILER_LABEL("nsFrameLoader", "ReallyStartLoading");
 
   nsresult rv = MaybeCreateDocShell();
   if (NS_FAILED(rv)) {
@@ -451,24 +451,21 @@ nsFrameLoader::ReallyStartLoadingInternal()
   mDocShell->CreateLoadInfo(getter_AddRefs(loadInfo));
   NS_ENSURE_TRUE(loadInfo, NS_ERROR_FAILURE);
 
-  // Is this an <iframe> with a sandbox attribute or a parent which is
-  // sandboxed ?
-  HTMLIFrameElement* iframe =
-    HTMLIFrameElement::FromContent(mOwnerContent);
-
+  // Does this frame have a parent which is already sandboxed or is this
+  // an <iframe> with a sandbox attribute?
   uint32_t sandboxFlags = 0;
+  uint32_t parentSandboxFlags = mOwnerContent->OwnerDoc()->GetSandboxFlags();
+
+  HTMLIFrameElement* iframe = HTMLIFrameElement::FromContent(mOwnerContent);
 
   if (iframe) {
     sandboxFlags = iframe->GetSandboxFlags();
+  }
 
-    uint32_t parentSandboxFlags = iframe->OwnerDoc()->GetSandboxFlags();
-
-    if (sandboxFlags || parentSandboxFlags) {
-      // The child can only add restrictions, not remove them.
-      sandboxFlags |= parentSandboxFlags;
-
-      mDocShell->SetSandboxFlags(sandboxFlags);
-    }
+  if (sandboxFlags || parentSandboxFlags) {
+    // The child can only add restrictions, never remove them.
+    sandboxFlags |= parentSandboxFlags;
+    mDocShell->SetSandboxFlags(sandboxFlags);
   }
 
   SVGIFrameElement *svgiframe =
@@ -487,10 +484,10 @@ nsFrameLoader::ReallyStartLoadingInternal()
     }
   }
 
-  // If this is an <iframe> and it's sandboxed with respect to origin
-  // we will set it up with a null principal later in nsDocShell::DoURILoad.
+  // If this frame is sandboxed with respect to origin we will set it up with
+  // a null principal later in nsDocShell::DoURILoad.
   // We do it there to correctly sandbox content that was loaded into
-  // the iframe via other methods than the src attribute.
+  // the frame via other methods than the src attribute.
   // We'll use our principal, not that of the document loaded inside us.  This
   // is very important; needed to prevent XSS attacks on documents loaded in
   // subframes!
@@ -1084,7 +1081,7 @@ nsFrameLoader::ShowRemoteFrame(const nsIntSize& size,
     nsCOMPtr<nsIObserverService> os = services::GetObserverService();
     if (OwnerIsBrowserOrAppFrame() && os && !mRemoteBrowserInitialized) {
       os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, this),
-                          "remote-browser-frame-shown", NULL);
+                          "remote-browser-frame-shown", nullptr);
       mRemoteBrowserInitialized = true;
     }
   } else {
@@ -1714,7 +1711,7 @@ nsFrameLoader::MaybeCreateDocShell()
   }
 
   if (!frameName.IsEmpty()) {
-    mDocShell->SetName(frameName.get());
+    mDocShell->SetName(frameName);
   }
 
   // If our container is a web-shell, inform it that it has a new
@@ -1821,7 +1818,7 @@ nsFrameLoader::MaybeCreateDocShell()
     nsCOMPtr<nsIObserverService> os = services::GetObserverService();
     if (os) {
       os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, this),
-                          "in-process-browser-or-app-frame-shown", NULL);
+                          "in-process-browser-or-app-frame-shown", nullptr);
     }
 
     if (mMessageManager) {
@@ -2166,7 +2163,7 @@ nsFrameLoader::TryRemoteBrowser()
     return false;
   }
 
-  SAMPLE_LABEL("nsFrameLoader", "CreateRemoteBrowser");
+  PROFILER_LABEL("nsFrameLoader", "CreateRemoteBrowser");
 
   MutableTabContext context;
   nsCOMPtr<mozIApplication> ownApp = GetOwnApp();

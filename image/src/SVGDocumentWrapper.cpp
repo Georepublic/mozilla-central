@@ -124,7 +124,7 @@ SVGDocumentWrapper::UpdateViewportBounds(const nsIntSize& aViewportSize)
 
   nsIntRect currentBounds;
   mViewer->GetBounds(currentBounds);
-  
+
   // If the bounds have changed, we need to do a layout flush.
   if (currentBounds.Size() != aViewportSize) {
     mViewer->SetBounds(nsIntRect(nsIntPoint(0, 0), aViewportSize));
@@ -203,6 +203,22 @@ SVGDocumentWrapper::ResetAnimation()
   svgElem->SetCurrentTime(0.0f);
 }
 
+float
+SVGDocumentWrapper::GetCurrentTime()
+{
+  SVGSVGElement* svgElem = GetRootSVGElem();
+  return svgElem ? svgElem->GetCurrentTime()
+                 : 0.0f;
+}
+
+void
+SVGDocumentWrapper::SetCurrentTime(float aTime)
+{
+  SVGSVGElement* svgElem = GetRootSVGElem();
+  if (svgElem && svgElem->GetCurrentTime() != aTime) {
+    svgElem->SetCurrentTime(aTime);
+  }
+}
 
 /** nsIStreamListener methods **/
 

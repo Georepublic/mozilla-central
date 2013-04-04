@@ -14,6 +14,7 @@
 #include "SmsCursor.h"
 #include "SmsMessage.h"
 #include "SmsManager.h"
+#include "MobileMessageManager.h"
 #include "mozilla/dom/DOMError.h"
 #include "SmsParent.h"
 #include "jsapi.h"
@@ -30,7 +31,7 @@ DOMCI_DATA(MozSmsRequest, mozilla::dom::SmsRequest)
 namespace mozilla {
 namespace dom {
 
-NS_IMPL_ISUPPORTS1(SmsRequestForwarder, nsISmsRequest)
+NS_IMPL_ISUPPORTS1(SmsRequestForwarder, nsIMobileMessageCallback)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(SmsRequest,
                                                   nsDOMEventTargetHelper)
@@ -56,7 +57,7 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(SmsRequest)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozSmsRequest)
   NS_INTERFACE_MAP_ENTRY(nsIDOMDOMRequest)
-  NS_INTERFACE_MAP_ENTRY(nsISmsRequest)
+  NS_INTERFACE_MAP_ENTRY(nsIMobileMessageCallback)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MozSmsRequest)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
 
@@ -73,6 +74,13 @@ SmsRequest::Create(SmsManager* aManager)
   return request.forget();
 }
 
+already_AddRefed<nsIDOMMozSmsRequest>
+SmsRequest::Create(MobileMessageManager* aManager)
+{
+  nsCOMPtr<nsIDOMMozSmsRequest> request = new SmsRequest(aManager);
+  return request.forget();
+}
+
 already_AddRefed<SmsRequest>
 SmsRequest::Create(SmsRequestParent* aRequestParent)
 {
@@ -81,6 +89,16 @@ SmsRequest::Create(SmsRequestParent* aRequestParent)
 }
 
 SmsRequest::SmsRequest(SmsManager* aManager)
+  : mResult(JSVAL_VOID)
+  , mResultRooted(false)
+  , mDone(false)
+  , mParentAlive(false)
+  , mParent(nullptr)
+{
+  BindToOwner(aManager);
+}
+
+SmsRequest::SmsRequest(MobileMessageManager* aManager)
   : mResult(JSVAL_VOID)
   , mResultRooted(false)
   , mDone(false)
@@ -167,7 +185,7 @@ SmsRequest::SetSuccess(nsIDOMMozSmsCursor* aCursor)
 }
 
 void
-SmsRequest::SetSuccess(const jsval& aResult)
+SmsRequest::SetSuccess(const JS::Value& aResult)
 {
   NS_PRECONDITION(!mDone, "mDone shouldn't have been set to true already!");
   NS_PRECONDITION(!mError, "mError shouldn't have been set!");
@@ -187,7 +205,7 @@ SmsRequest::SetSuccessInternal(nsISupports* aObject)
   nsresult rv;
   nsIScriptContext* sc = GetContextForEventHandlers(&rv);
   if (!sc) {
-    SetError(nsISmsRequest::INTERNAL_ERROR);
+    SetError(nsIMobileMessageCallback::INTERNAL_ERROR);
     return false;
   }
 
@@ -204,7 +222,7 @@ SmsRequest::SetSuccessInternal(nsISupports* aObject)
 
   if (NS_FAILED(nsContentUtils::WrapNative(cx, global, aObject, &mResult))) {
     UnrootResult();
-    SetError(nsISmsRequest::INTERNAL_ERROR);
+    SetError(nsIMobileMessageCallback::INTERNAL_ERROR);
     return false;
   }
 
@@ -218,23 +236,23 @@ SmsRequest::SetError(int32_t aError)
   NS_PRECONDITION(!mDone, "mDone shouldn't have been set to true already!");
   NS_PRECONDITION(!mError, "mError shouldn't have been set!");
   NS_PRECONDITION(mResult == JSVAL_VOID, "mResult shouldn't have been set!");
-  NS_PRECONDITION(aError != nsISmsRequest::SUCCESS_NO_ERROR,
+  NS_PRECONDITION(aError != nsIMobileMessageCallback::SUCCESS_NO_ERROR,
                   "Can't call SetError() with SUCCESS_NO_ERROR!");
 
   mDone = true;
   mCursor = nullptr;
 
   switch (aError) {
-    case nsISmsRequest::NO_SIGNAL_ERROR:
+    case nsIMobileMessageCallback::NO_SIGNAL_ERROR:
       mError = DOMError::CreateWithName(NS_LITERAL_STRING("NoSignalError"));
       break;
-    case nsISmsRequest::NOT_FOUND_ERROR:
+    case nsIMobileMessageCallback::NOT_FOUND_ERROR:
       mError = DOMError::CreateWithName(NS_LITERAL_STRING("NotFoundError"));
       break;
-    case nsISmsRequest::UNKNOWN_ERROR:
+    case nsIMobileMessageCallback::UNKNOWN_ERROR:
       mError = DOMError::CreateWithName(NS_LITERAL_STRING("UnknownError"));
       break;
-    case nsISmsRequest::INTERNAL_ERROR:
+    case nsIMobileMessageCallback::INTERNAL_ERROR:
       mError = DOMError::CreateWithName(NS_LITERAL_STRING("InternalError"));
       break;
     default: // SUCCESS_NO_ERROR is handled above.
@@ -267,7 +285,7 @@ SmsRequest::GetError(nsIDOMDOMError** aError)
 }
 
 NS_IMETHODIMP
-SmsRequest::GetResult(jsval* aResult)
+SmsRequest::GetResult(JS::Value* aResult)
 {
   if (!mDone) {
     NS_ASSERTION(mResult == JSVAL_VOID,
@@ -284,7 +302,8 @@ SmsRequest::GetResult(jsval* aResult)
 nsresult
 SmsRequest::DispatchTrustedEvent(const nsAString& aEventName)
 {
-  nsRefPtr<nsDOMEvent> event = new nsDOMEvent(nullptr, nullptr);
+  nsCOMPtr<nsIDOMEvent> event;
+  NS_NewDOMEvent(getter_AddRefs(event), this, nullptr, nullptr);
   nsresult rv = event->InitEvent(aEventName, false, false);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -323,13 +342,21 @@ SmsRequest::SendMessageReply(const MessageReply& aReply)
 }
 
 NS_IMETHODIMP
-SmsRequest::NotifyMessageSent(nsIDOMMozSmsMessage *aMessage)
+SmsRequest::NotifyMessageSent(nsISupports *aMessage)
 {
+  // We only support nsIDOMMozSmsMessage for SmsRequest.
+  nsCOMPtr<nsIDOMMozSmsMessage> message(do_QueryInterface(aMessage));
+  if (!message) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  SmsMessage* smsMessage = static_cast<SmsMessage*>(message.get());
+
   if (mParent) {
-    SmsMessageData data = SmsMessageData(static_cast<SmsMessage*>(aMessage)->GetData());
+    SmsMessageData data = SmsMessageData(smsMessage->GetData());
     return SendMessageReply(MessageReply(ReplyMessageSend(data)));
   }
-  return NotifySuccess<nsIDOMMozSmsMessage*>(aMessage);
+  return NotifySuccess<nsIDOMMozSmsMessage*>(smsMessage);
 }
 
 NS_IMETHODIMP
@@ -343,13 +370,21 @@ SmsRequest::NotifySendMessageFailed(int32_t aError)
 }
 
 NS_IMETHODIMP
-SmsRequest::NotifyMessageGot(nsIDOMMozSmsMessage *aMessage)
+SmsRequest::NotifyMessageGot(nsISupports *aMessage)
 {
+  // We only support nsIDOMMozSmsMessage for SmsRequest.
+  nsCOMPtr<nsIDOMMozSmsMessage> message(do_QueryInterface(aMessage));
+  if (!message) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  SmsMessage* smsMessage = static_cast<SmsMessage*>(message.get());
+
   if (mParent) {
-    SmsMessageData data = SmsMessageData(static_cast<SmsMessage*>(aMessage)->GetData());
+    SmsMessageData data = SmsMessageData(smsMessage->GetData());
     return SendMessageReply(MessageReply(ReplyGetMessage(data)));
   }
-  return NotifySuccess<nsIDOMMozSmsMessage*>(aMessage);
+  return NotifySuccess<nsIDOMMozSmsMessage*>(smsMessage);
 
 }
 
@@ -381,15 +416,22 @@ SmsRequest::NotifyDeleteMessageFailed(int32_t aError)
 }
 
 NS_IMETHODIMP
-SmsRequest::NotifyMessageListCreated(int32_t aListId,
-                                     nsIDOMMozSmsMessage *aMessage)
+SmsRequest::NotifyMessageListCreated(int32_t aListId, nsISupports *aMessage)
 {
+  // We only support nsIDOMMozSmsMessage for SmsRequest.
+  nsCOMPtr<nsIDOMMozSmsMessage> message(do_QueryInterface(aMessage));
+  if (!message) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  SmsMessage* smsMessage = static_cast<SmsMessage*>(message.get());
+
   if (mParent) {
-    SmsMessageData data = SmsMessageData(static_cast<SmsMessage*>(aMessage)->GetData());
+    SmsMessageData data = SmsMessageData(smsMessage->GetData());
     return SendMessageReply(MessageReply(ReplyCreateMessageList(aListId, data)));
   } else {
     nsCOMPtr<SmsCursor> cursor = new SmsCursor(aListId, this);
-    cursor->SetMessage(aMessage);
+    cursor->SetMessage(smsMessage);
     return NotifySuccess<nsIDOMMozSmsCursor*>(cursor);
   }
 }
@@ -407,15 +449,23 @@ SmsRequest::NotifyReadMessageListFailed(int32_t aError)
 }
 
 NS_IMETHODIMP
-SmsRequest::NotifyNextMessageInListGot(nsIDOMMozSmsMessage *aMessage)
+SmsRequest::NotifyNextMessageInListGot(nsISupports *aMessage)
 {
+  // We only support nsIDOMMozSmsMessage for SmsRequest.
+  nsCOMPtr<nsIDOMMozSmsMessage> message(do_QueryInterface(aMessage));
+  if (!message) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  SmsMessage* smsMessage = static_cast<SmsMessage*>(message.get());
+
   if (mParent) {
-    SmsMessageData data = SmsMessageData(static_cast<SmsMessage*>(aMessage)->GetData());
+    SmsMessageData data = SmsMessageData(smsMessage->GetData());
     return SendMessageReply(MessageReply(ReplyGetNextMessage(data)));
   }
   nsCOMPtr<SmsCursor> cursor = static_cast<SmsCursor*>(mCursor.get());
   NS_ASSERTION(cursor, "Request should have an cursor in that case!");
-  cursor->SetMessage(aMessage);
+  cursor->SetMessage(smsMessage);
   return NotifySuccess<nsIDOMMozSmsCursor*>(cursor);
 }
 
@@ -453,7 +503,7 @@ SmsRequest::NotifyMarkMessageReadFailed(int32_t aError)
 }
 
 NS_IMETHODIMP
-SmsRequest::NotifyThreadList(const jsval& aThreadList, JSContext* aCx)
+SmsRequest::NotifyThreadList(const JS::Value& aThreadList, JSContext* aCx)
 {
   MOZ_ASSERT(aThreadList.isObject());
 
@@ -471,7 +521,7 @@ SmsRequest::NotifyThreadList(const jsval& aThreadList, JSContext* aCx)
       ipcItems.SetCapacity(length);
 
       for (uint32_t i = 0; i < length; i++) {
-        jsval arrayEntry;
+        JS::Value arrayEntry;
         ok = JS_GetElement(aCx, array, i, &arrayEntry);
         NS_ENSURE_TRUE(ok, NS_ERROR_FAILURE);
 
@@ -539,22 +589,22 @@ SmsRequest::NotifyThreadList(const InfallibleTArray<ThreadListItem>& aItems)
 
     nsString temp = source.senderOrReceiver();
 
-    jsval senderOrReceiver;
+    JS::Value senderOrReceiver;
     ok = xpc::StringToJsval(cx, temp, &senderOrReceiver);
     NS_ENSURE_TRUE_VOID(ok);
 
     JSObject* timestampObj = JS_NewDateObjectMsec(cx, source.timestamp());
     NS_ENSURE_TRUE_VOID(timestampObj);
 
-    jsval timestamp = OBJECT_TO_JSVAL(timestampObj);
+    JS::Value timestamp = OBJECT_TO_JSVAL(timestampObj);
 
     temp = source.body();
 
-    jsval body;
+    JS::Value body;
     ok = xpc::StringToJsval(cx, temp, &body);
     NS_ENSURE_TRUE_VOID(ok);
 
-    jsval unreadCount = JS_NumberValue(double(source.unreadCount()));
+    JS::Value unreadCount = JS_NumberValue(double(source.unreadCount()));
 
     JSObject* elementObj = JS_NewObject(cx, nullptr, nullptr, nullptr);
     NS_ENSURE_TRUE_VOID(elementObj);
@@ -571,7 +621,7 @@ SmsRequest::NotifyThreadList(const InfallibleTArray<ThreadListItem>& aItems)
     ok = JS_SetProperty(cx, elementObj, "unreadCount", &unreadCount);
     NS_ENSURE_TRUE_VOID(ok);
 
-    jsval element = OBJECT_TO_JSVAL(elementObj);
+    JS::Value element = OBJECT_TO_JSVAL(elementObj);
 
     ok = JS_SetElement(cx, array, i, &element);
     NS_ENSURE_TRUE_VOID(ok);

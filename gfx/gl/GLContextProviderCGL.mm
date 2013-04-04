@@ -16,7 +16,7 @@
 #include "gfxFailure.h"
 #include "prenv.h"
 #include "mozilla/Preferences.h"
-#include "sampler.h"
+#include "GeckoProfiler.h"
 
 using namespace mozilla::gfx;
 
@@ -162,7 +162,7 @@ public:
 
     bool SwapBuffers()
     {
-      SAMPLE_LABEL("GLContext", "SwapBuffers");
+      PROFILER_LABEL("GLContext", "SwapBuffers");
       [mContext flushBuffer];
       return true;
     }
@@ -322,7 +322,7 @@ GLContextProviderCGL::CreateForWindow(nsIWidget *aWidget)
 
     GLContextCGL *shareContext = GetGlobalContextCGL();
 
-    NSOpenGLContext *context = [[NSOpenGLContext alloc] 
+    NSOpenGLContext *context = [[NSOpenGLContext alloc]
                                 initWithFormat:sCGLLibrary.PixelFormat()
                                 shareContext:(shareContext ? shareContext->mContext : NULL)];
     if (!context) {
@@ -330,6 +330,9 @@ GLContextProviderCGL::CreateForWindow(nsIWidget *aWidget)
     }
 
     // make the context transparent
+    GLint opaque = 0;
+    [context setValues:&opaque forParameter:NSOpenGLCPSurfaceOpacity];
+
     SurfaceCaps caps = SurfaceCaps::ForRGBA();
     nsRefPtr<GLContextCGL> glContext = new GLContextCGL(caps,
                                                         shareContext,

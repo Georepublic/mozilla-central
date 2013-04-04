@@ -11,6 +11,7 @@
 #include <limits.h>
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/PodOperations.h"
 
 #include "ion/IonAllocPolicy.h"
 #include "ion/Registers.h"
@@ -24,11 +25,30 @@ namespace js {
 namespace ion {
 
 enum Scale {
-    TimesOne,
-    TimesTwo,
-    TimesFour,
-    TimesEight
+    TimesOne = 0,
+    TimesTwo = 1,
+    TimesFour = 2,
+    TimesEight = 3
 };
+
+static inline unsigned
+ScaleToShift(Scale scale)
+{
+    return unsigned(scale);
+}
+
+static inline bool
+IsShiftInScaleRange(int i)
+{
+    return i >= TimesOne && i <= TimesEight;
+}
+
+static inline Scale
+ShiftToScale(int i)
+{
+    JS_ASSERT(IsShiftInScaleRange(i));
+    return Scale(i);
+}
 
 static inline Scale
 ScaleFromElemWidth(int shift)
@@ -103,14 +123,6 @@ struct ImmGCPtr
     {
         JS_ASSERT(!IsPoisonedPtr(ptr));
     }
-
-    // ImmGCPtr is rooted so we can convert safely directly from Unrooted<T>.
-    template <typename T>
-    explicit ImmGCPtr(Unrooted<T> ptr)
-      : value(reinterpret_cast<uintptr_t>(static_cast<T>(ptr)))
-    {
-        JS_ASSERT(!IsPoisonedPtr(static_cast<T>(ptr)));
-    }
 };
 
 // Specifies a hardcoded, absolute address.
@@ -136,7 +148,7 @@ struct Address
     Address(Register base, int32_t offset) : base(base), offset(offset)
     { }
 
-    Address() { PodZero(this); }
+    Address() { mozilla::PodZero(this); }
 };
 
 // Specifies an address computed in the form of a register base and a constant,
@@ -152,7 +164,7 @@ struct BaseIndex
       : base(base), index(index), scale(scale), offset(offset)
     { }
 
-    BaseIndex() { PodZero(this); }
+    BaseIndex() { mozilla::PodZero(this); }
 };
 
 class Relocation {
@@ -246,10 +258,20 @@ class Label : public LabelBase
     { }
     ~Label()
     {
-        // Note: the condition is a hack to avoid this assert when OOM testing,
+#ifdef DEBUG
+        // Note: the condition is a hack to silence this assert when OOM testing,
         // see bug 756614.
-        JS_ASSERT_IF(OOM_counter < OOM_maxAllocations, !used());
+        if (!js_IonOptions.parallelCompilation)
+            JS_ASSERT_IF(!GetIonContext()->runtime->hadOutOfMemory, !used());
+#endif
     }
+};
+
+// Wrapper around Label, on the heap, to avoid a bogus assert with OOM.
+struct HeapLabel
+  : public TempObject,
+    public Label
+{
 };
 
 class RepatchLabel
@@ -367,7 +389,7 @@ class CodeOffsetJump
 #endif
 
     CodeOffsetJump() {
-        PodZero(this);
+        mozilla::PodZero(this);
     }
 
     size_t offset() const {

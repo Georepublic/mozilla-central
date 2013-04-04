@@ -46,7 +46,7 @@
 #include "harfbuzz/hb.h"
 
 #include "nsCRT.h"
-#include "sampler.h"
+#include "GeckoProfiler.h"
 
 #include <algorithm>
 
@@ -56,6 +56,9 @@ using namespace mozilla::unicode;
 using mozilla::services::GetObserverService;
 
 gfxFontCache *gfxFontCache::gGlobalCache = nullptr;
+
+static const PRUnichar kEllipsisChar[] = { 0x2026, 0x0 };
+static const PRUnichar kASCIIPeriodsChar[] = { '.', '.', '.', 0x0 };
 
 #ifdef DEBUG_roc
 #define DEBUG_TEXT_RUN_STORAGE_METRICS
@@ -787,7 +790,7 @@ CalcStyleMatch(gfxFontEntry *aFontEntry, const gfxFontStyle *aStyle)
          }
 
         // measure of closeness of weight to the desired value
-        rank += 9 - Abs(aFontEntry->Weight() / 100 - aStyle->ComputeWeight());
+        rank += 9 - DeprecatedAbs(aFontEntry->Weight() / 100 - aStyle->ComputeWeight());
     } else {
         // if no font to match, prefer non-bold, non-italic fonts
         if (!aFontEntry->IsItalic()) {
@@ -1533,7 +1536,7 @@ struct GlyphBuffer {
                 FlushStroke(aCR, aObjectPaint, aGlobalMatrix);
             }
             if (aDrawMode & gfxFont::GLYPH_FILL) {
-                SAMPLE_LABEL("GlyphBuffer", "cairo_show_glyphs");
+                PROFILER_LABEL("GlyphBuffer", "cairo_show_glyphs");
                 nsRefPtr<gfxPattern> pattern;
                 if (aObjectPaint &&
                     !!(pattern = aObjectPaint->GetFillPattern(aGlobalMatrix))) {
@@ -3453,7 +3456,8 @@ gfxFontGroup::HasFont(const gfxFontEntry *aFontEntry)
     return false;
 }
 
-gfxFontGroup::~gfxFontGroup() {
+gfxFontGroup::~gfxFontGroup()
+{
     mFonts.Clear();
     SetUserFontSet(nullptr);
 }
@@ -4030,6 +4034,39 @@ gfxFontGroup::InitScriptRun(gfxContext *aContext,
     }
 }
 
+gfxTextRun *
+gfxFontGroup::GetEllipsisTextRun(int32_t aAppUnitsPerDevPixel,
+                                 LazyReferenceContextGetter& aRefContextGetter)
+{
+    if (mCachedEllipsisTextRun &&
+        mCachedEllipsisTextRun->GetAppUnitsPerDevUnit() == aAppUnitsPerDevPixel) {
+        return mCachedEllipsisTextRun;
+    }
+
+    // Use a Unicode ellipsis if the font supports it,
+    // otherwise use three ASCII periods as fallback.
+    gfxFont* firstFont = GetFontAt(0);
+    nsString ellipsis = firstFont->HasCharacter(kEllipsisChar[0])
+        ? nsDependentString(kEllipsisChar,
+                            ArrayLength(kEllipsisChar) - 1)
+        : nsDependentString(kASCIIPeriodsChar,
+                            ArrayLength(kASCIIPeriodsChar) - 1);
+
+    nsRefPtr<gfxContext> refCtx = aRefContextGetter.GetRefContext();
+    Parameters params = {
+        refCtx, nullptr, nullptr, nullptr, 0, aAppUnitsPerDevPixel
+    };
+    gfxTextRun* textRun =
+        MakeTextRun(ellipsis.get(), ellipsis.Length(), &params, TEXT_IS_PERSISTENT);
+    if (!textRun) {
+        return nullptr;
+    }
+    mCachedEllipsisTextRun = textRun;
+    textRun->ReleaseFontGroup(); // don't let the presence of a cached ellipsis
+                                 // textrun prolong the fontgroup's life
+    return textRun;
+}
+
 already_AddRefed<gfxFont>
 gfxFontGroup::TryAllFamilyMembers(gfxFontFamily* aFamily, uint32_t aCh)
 {
@@ -4281,6 +4318,7 @@ gfxFontGroup::UpdateFontList()
         ForEachFont(FindPlatformFont, this);
 #endif
         mCurrGeneration = GetGeneration();
+        mCachedEllipsisTextRun = nullptr;
     }
 }
 
@@ -4755,6 +4793,7 @@ gfxTextRun::gfxTextRun(const gfxTextRunFactory::Parameters *aParams,
     : gfxShapedText(aLength, aFlags, aParams->mAppUnitsPerDevUnit)
     , mUserData(aParams->mUserData)
     , mFontGroup(aFontGroup)
+    , mReleasedFontGroup(false)
 {
     NS_ASSERTION(mAppUnitsPerDevUnit > 0, "Invalid app unit scale");
     MOZ_COUNT_CTOR(gfxTextRun);
@@ -4783,8 +4822,22 @@ gfxTextRun::~gfxTextRun()
     mFlags = 0xFFFFFFFF;
 #endif
 
-    NS_RELEASE(mFontGroup);
+    // The cached ellipsis textrun (if any) in a fontgroup will have already
+    // been told to release its reference to the group, so we mustn't do that
+    // again here.
+    if (!mReleasedFontGroup) {
+        NS_RELEASE(mFontGroup);
+    }
+
     MOZ_COUNT_DTOR(gfxTextRun);
+}
+
+void
+gfxTextRun::ReleaseFontGroup()
+{
+    NS_ASSERTION(!mReleasedFontGroup, "doubly released!");
+    NS_RELEASE(mFontGroup);
+    mReleasedFontGroup = true;
 }
 
 bool

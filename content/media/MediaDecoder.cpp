@@ -10,7 +10,7 @@
 #include <limits>
 #include "nsNetUtil.h"
 #include "AudioStream.h"
-#include "nsHTMLVideoElement.h"
+#include "mozilla/dom/HTMLVideoElement.h"
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
 #include "nsTArray.h"
@@ -952,11 +952,6 @@ void MediaDecoder::NotifySuspendedStatusChanged()
   bool suspended = mResource->IsSuspendedByCache(&activeStream);
 
   if (mOwner) {
-    if (suspended) {
-      // If this is an autoplay element, we need to kick off its autoplaying
-      // now so we consume data and hopefully free up cache space.
-      mOwner->NotifyAutoplayDataReady();
-    }
     mOwner->NotifySuspendedByCache(suspended);
     UpdateReadyStateForData();
   }
@@ -1262,10 +1257,10 @@ void MediaDecoder::SetMediaSeekable(bool aMediaSeekable) {
 
 void MediaDecoder::SetTransportSeekable(bool aTransportSeekable)
 {
-  MOZ_ASSERT(NS_IsMainThread());
+  ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
+  MOZ_ASSERT(NS_IsMainThread() || OnDecodeThread());
   mTransportSeekable = aTransportSeekable;
   if (mDecoderStateMachine) {
-    ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
     mDecoderStateMachine->SetTransportSeekable(aTransportSeekable);
   }
 }
@@ -1286,7 +1281,6 @@ bool MediaDecoder::IsMediaSeekable()
 
 nsresult MediaDecoder::GetSeekable(TimeRanges* aSeekable)
 {
-  //TODO : change 0.0 to GetInitialTime() when available
   double initialTime = 0.0;
 
   // We can seek in buffered range if the media is seekable. Also, we can seek

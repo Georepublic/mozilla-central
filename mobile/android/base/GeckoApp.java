@@ -6,20 +6,20 @@
 package org.mozilla.gecko;
 
 import org.mozilla.gecko.background.announcements.AnnouncementsBroadcastService;
-import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.BrowserContract;
+import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.gfx.Layer;
 import org.mozilla.gecko.gfx.LayerView;
 import org.mozilla.gecko.gfx.PanZoomController;
 import org.mozilla.gecko.gfx.PluginLayer;
 import org.mozilla.gecko.gfx.PointUtils;
-import org.mozilla.gecko.mozglue.GeckoLoader;
-import org.mozilla.gecko.util.UiAsyncTask;
-import org.mozilla.gecko.util.GeckoBackgroundThread;
+import org.mozilla.gecko.updater.UpdateService;
+import org.mozilla.gecko.updater.UpdateServiceHelper;
 import org.mozilla.gecko.util.GeckoEventListener;
 import org.mozilla.gecko.util.GeckoEventResponder;
-import org.mozilla.gecko.updater.UpdateServiceHelper;
-import org.mozilla.gecko.updater.UpdateService;
+import org.mozilla.gecko.util.HardwareUtils;
+import org.mozilla.gecko.util.ThreadUtils;
+import org.mozilla.gecko.util.UiAsyncTask;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -66,6 +66,7 @@ import android.util.Log;
 import android.util.SparseBooleanArray;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -82,7 +83,6 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.AbsoluteLayout;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
 import android.widget.SimpleAdapter;
@@ -103,7 +103,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -111,7 +110,8 @@ abstract public class GeckoApp
                 extends GeckoActivity 
                 implements GeckoEventListener, SensorEventListener, LocationListener,
                            Tabs.OnTabsChangedListener, GeckoEventResponder,
-                           GeckoMenu.Callback, GeckoMenu.MenuPresenter
+                           GeckoMenu.Callback, GeckoMenu.MenuPresenter,
+                           TouchEventInterceptor
 {
     private static final String LOGTAG = "GeckoApp";
 
@@ -127,15 +127,12 @@ abstract public class GeckoApp
         PREFETCH    /* launched with a passed URL that we prefetch */
     }
 
-    public static final String ACTION_ALERT_CLICK   = "org.mozilla.gecko.ACTION_ALERT_CLICK";
-    public static final String ACTION_ALERT_CLEAR   = "org.mozilla.gecko.ACTION_ALERT_CLEAR";
     public static final String ACTION_ALERT_CALLBACK = "org.mozilla.gecko.ACTION_ALERT_CALLBACK";
     public static final String ACTION_WEBAPP_PREFIX = "org.mozilla.gecko.WEBAPP";
     public static final String ACTION_DEBUG         = "org.mozilla.gecko.DEBUG";
     public static final String ACTION_BOOKMARK      = "org.mozilla.gecko.BOOKMARK";
     public static final String ACTION_LOAD          = "org.mozilla.gecko.LOAD";
     public static final String ACTION_INIT_PW       = "org.mozilla.gecko.INIT_PW";
-    public static final String ACTION_WIDGET        = "org.mozilla.gecko.WIDGET";
     public static final String SAVED_STATE_IN_BACKGROUND = "inBackground";
     public static final String SAVED_STATE_PRIVATE_SESSION = "privateSession";
 
@@ -149,7 +146,7 @@ abstract public class GeckoApp
     static public final int RESTORE_CRASH = 2;
 
     StartupMode mStartupMode = null;
-    protected LinearLayout mMainLayout;
+    protected RelativeLayout mMainLayout;
     protected RelativeLayout mGeckoLayout;
     public View getView() { return mGeckoLayout; }
     public SurfaceView cameraView;
@@ -157,7 +154,6 @@ abstract public class GeckoApp
     protected MenuPanel mMenuPanel;
     protected Menu mMenu;
     private static GeckoThread sGeckoThread;
-    public Handler mMainHandler;
     private GeckoProfile mProfile;
     public static int mOrientation;
     protected boolean mIsRestoringActivity;
@@ -186,8 +182,7 @@ abstract public class GeckoApp
 
     private String mPrivateBrowsingSession;
 
-    private static Boolean sIsLargeTablet = null;
-    private static Boolean sIsSmallTablet = null;
+    private PointF mInitialTouchPoint = null;
 
     abstract public int getLayout();
     abstract public boolean hasTabsSideBar();
@@ -479,7 +474,7 @@ abstract public class GeckoApp
     @Override
     public void showMenu(View menu) {
         // Hide the menu only if we are showing the MenuPopup.
-        if (!hasPermanentMenuKey())
+        if (!HardwareUtils.hasMenuButton())
             closeMenu();
 
         mMenuPanel.removeAllViews();
@@ -616,15 +611,12 @@ abstract public class GeckoApp
         if (outState == null)
             outState = new Bundle();
 
-        boolean inBackground =
-            ((GeckoApplication)getApplication()).isApplicationInBackground();
-
-        outState.putBoolean(SAVED_STATE_IN_BACKGROUND, inBackground);
+        outState.putBoolean(SAVED_STATE_IN_BACKGROUND, isApplicationInBackground());
         outState.putString(SAVED_STATE_PRIVATE_SESSION, mPrivateBrowsingSession);
     }
 
     void handleFaviconRequest(final String url) {
-        (new UiAsyncTask<Void, Void, String>(GeckoAppShell.getHandler()) {
+        (new UiAsyncTask<Void, Void, String>(ThreadUtils.getBackgroundHandler()) {
             @Override
             public String doInBackground(Void... params) {
                 return Favicons.getInstance().getFaviconUrlForPageUrl(url);
@@ -727,18 +719,6 @@ abstract public class GeckoApp
 
     public boolean areTabsShown() { return false; }
 
-    public boolean hasPermanentMenuKey() {
-        boolean hasMenu = true;
-
-        if (Build.VERSION.SDK_INT >= 11)
-            hasMenu = false;
-
-        if (Build.VERSION.SDK_INT >= 14)
-            hasMenu = ViewConfiguration.get(GeckoApp.mAppContext).hasPermanentMenuKey();
-
-        return hasMenu;
-    }
-
     @Override
     public void handleMessage(String event, JSONObject message) {
         try {
@@ -796,11 +776,11 @@ abstract public class GeckoApp
             } else if (event.equals("Bookmark:Insert")) {
                 final String url = message.getString("url");
                 final String title = message.getString("title");
-                mMainHandler.post(new Runnable() {
+                ThreadUtils.postToUiThread(new Runnable() {
                     @Override
                     public void run() {
                         Toast.makeText(GeckoApp.mAppContext, R.string.bookmark_added, Toast.LENGTH_SHORT).show();
-                        GeckoAppShell.getHandler().post(new Runnable() {
+                        ThreadUtils.postToBackgroundThread(new Runnable() {
                             @Override
                             public void run() {
                                 BrowserDB.addBookmark(GeckoApp.mAppContext.getContentResolver(), title, url);
@@ -830,9 +810,21 @@ abstract public class GeckoApp
                 String manifestURL = message.getString("manifestURL");
                 String iconURL = message.getString("iconURL");
                 String origin = message.getString("origin");
-
-                // installWebapp will return a File object pointing to the profile directory of the webapp
-                mCurrentResponse = GeckoAppShell.installWebApp(name, manifestURL, origin, iconURL).toString();
+                // preInstallWebapp will return a File object pointing to the profile directory of the webapp
+                mCurrentResponse = GeckoAppShell.preInstallWebApp(name, manifestURL, origin).toString();
+                GeckoAppShell.postInstallWebApp(name, manifestURL, origin, iconURL);
+            } else if (event.equals("WebApps:PreInstall")) {
+                String name = message.getString("name");
+                String manifestURL = message.getString("manifestURL");
+                String origin = message.getString("origin");
+                // preInstallWebapp will return a File object pointing to the profile directory of the webapp
+                mCurrentResponse = GeckoAppShell.preInstallWebApp(name, manifestURL, origin).toString();
+            } else if (event.equals("WebApps:PostInstall")) {
+                String name = message.getString("name");
+                String manifestURL = message.getString("manifestURL");
+                String iconURL = message.getString("iconURL");
+                String origin = message.getString("origin");
+                GeckoAppShell.postInstallWebApp(name, manifestURL, origin, iconURL);
             } else if (event.equals("WebApps:Uninstall")) {
                 String origin = message.getString("origin");
                 GeckoAppShell.uninstallWebApp(origin);
@@ -850,6 +842,10 @@ abstract public class GeckoApp
                 handleClearHistory();
             } else if (event.equals("Update:Check")) {
                 startService(new Intent(UpdateServiceHelper.ACTION_CHECK_FOR_UPDATE, null, this, UpdateService.class));
+            } else if (event.equals("Update:Download")) {
+                startService(new Intent(UpdateServiceHelper.ACTION_DOWNLOAD_UPDATE, null, this, UpdateService.class));
+            } else if (event.equals("Update:Install")) {
+                startService(new Intent(UpdateServiceHelper.ACTION_APPLY_UPDATE, null, this, UpdateService.class));
             } else if (event.equals("PrivateBrowsing:Data")) {
                 // null strings return "null" (http://code.google.com/p/android/issues/detail?id=13830)
                 if (message.isNull("session")) {
@@ -942,7 +938,7 @@ abstract public class GeckoApp
             }
         });
 
-        mMainHandler.post(new Runnable() {
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 Dialog dialog = builder.create();
@@ -960,7 +956,7 @@ abstract public class GeckoApp
     }
 
     public void showToast(final int resId, final int duration) {
-        mMainHandler.post(new Runnable() {
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 Toast.makeText(mAppContext, resId, duration).show();
@@ -969,7 +965,7 @@ abstract public class GeckoApp
     }
 
     void handleShowToast(final String message, final String duration) {
-        mMainHandler.post(new Runnable() {
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 Toast toast;
@@ -1011,7 +1007,7 @@ abstract public class GeckoApp
     }
 
     void addPluginView(final View view, final Rect rect, final boolean isFullScreen) {
-        mMainHandler.post(new Runnable() { 
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 Tabs tabs = Tabs.getInstance();
@@ -1051,7 +1047,7 @@ abstract public class GeckoApp
 
         // We need do do this on the next iteration in order to avoid
         // a deadlock, see comment below in FullScreenHolder
-        mMainHandler.post(new Runnable() {
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 mLayerView.show();
@@ -1068,7 +1064,7 @@ abstract public class GeckoApp
     }
 
     void removePluginView(final View view, final boolean isFullScreen) {
-        mMainHandler.post(new Runnable() { 
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 Tabs tabs = Tabs.getInstance();
@@ -1094,11 +1090,11 @@ abstract public class GeckoApp
         final String fileName = aSrc.substring(aSrc.lastIndexOf("/") + 1);
         final PendingIntent emptyIntent = PendingIntent.getActivity(mAppContext, 0, new Intent(), 0);
         final AlertNotification notification = new AlertNotification(mAppContext, fileName.hashCode(), 
-                                R.drawable.alert_download, fileName, progText, System.currentTimeMillis() );
+                                R.drawable.alert_download, fileName, progText, System.currentTimeMillis(), null);
         notification.setLatestEventInfo(mAppContext, fileName, progText, emptyIntent );
         notification.flags |= Notification.FLAG_ONGOING_EVENT;
         notification.show();
-        new UiAsyncTask<Void, Void, Boolean>(GeckoAppShell.getHandler()){
+        new UiAsyncTask<Void, Void, Boolean>(ThreadUtils.getBackgroundHandler()) {
 
             @Override
             protected Boolean doInBackground(Void... params) {
@@ -1292,7 +1288,7 @@ abstract public class GeckoApp
     }
 
     public void setFullScreen(final boolean fullscreen) {
-        mMainHandler.post(new Runnable() { 
+        ThreadUtils.postToUiThread(new Runnable() {
             @Override
             public void run() {
                 // Hide/show the system notification bar
@@ -1307,35 +1303,16 @@ abstract public class GeckoApp
         });
     }
 
-    public boolean isTablet() {
-        return isLargeTablet() || isSmallTablet();
-    }
-
-    public boolean isLargeTablet() {
-        if (sIsLargeTablet == null) {
-            int screenLayout = getResources().getConfiguration().screenLayout;
-            sIsLargeTablet = (Build.VERSION.SDK_INT >= 11 &&
-                              ((screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) == Configuration.SCREENLAYOUT_SIZE_XLARGE));
-        }
-
-        return sIsLargeTablet;
-    }
-
-    public boolean isSmallTablet() {
-        if (sIsSmallTablet == null) {
-            int screenLayout = getResources().getConfiguration().screenLayout;
-            return (Build.VERSION.SDK_INT >= 11 &&
-                    ((screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) == Configuration.SCREENLAYOUT_SIZE_LARGE));
-        }
-
-        return sIsSmallTablet;
-    }
-
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
         GeckoAppShell.registerGlobalExceptionHandler();
+
+        // Enable Android Strict Mode for developers' local builds (the "default" channel).
+        if ("default".equals(GeckoAppInfo.getUpdateChannel())) {
+            enableStrictMode();
+        }
 
         // The clock starts...now. Better hurry!
         mJavaUiStartupTimer = new Telemetry.Timer("FENNEC_STARTUP_TIME_JAVAUI");
@@ -1344,6 +1321,8 @@ abstract public class GeckoApp
         ((GeckoApplication)getApplication()).initialize();
 
         mAppContext = this;
+        ThreadUtils.setUiThread(Thread.currentThread(), new Handler());
+
         Tabs.getInstance().attachToActivity(this);
         Favicons.getInstance().attachToContext(this);
 
@@ -1355,20 +1334,12 @@ abstract public class GeckoApp
             return;
         }
 
-        // StrictMode is set by defaults resource flag |enableStrictMode|.
-        if (getResources().getBoolean(R.bool.enableStrictMode)) {
-            enableStrictMode();
-        }
-
-        GeckoLoader.loadMozGlue(this);
         if (sGeckoThread != null) {
             // this happens when the GeckoApp activity is destroyed by android
             // without killing the entire application (see bug 769269)
             mIsRestoringActivity = true;
             Telemetry.HistogramAdd("FENNEC_RESTORING_ACTIVITY", 1);
         }
-
-        mMainHandler = new Handler();
 
         // Fix for bug 830557 on Tegra boards running Froyo.
         // This fix must be done before doing layout.
@@ -1395,7 +1366,7 @@ abstract public class GeckoApp
 
         // setup gecko layout
         mGeckoLayout = (RelativeLayout) findViewById(R.id.gecko_layout);
-        mMainLayout = (LinearLayout) findViewById(R.id.main_layout);
+        mMainLayout = (RelativeLayout) findViewById(R.id.main_layout);
 
         // setup tabs panel
         mTabsPanel = (TabsPanel) findViewById(R.id.tabs_panel);
@@ -1418,7 +1389,7 @@ abstract public class GeckoApp
             mPrivateBrowsingSession = savedInstanceState.getString(SAVED_STATE_PRIVATE_SESSION);
         }
 
-        GeckoBackgroundThread.getHandler().post(new Runnable() {
+        ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
                 SharedPreferences prefs =
@@ -1438,6 +1409,8 @@ abstract public class GeckoApp
                 editor.commit();
             }
         });
+
+        GeckoAppShell.setNotificationClient(makeNotificationClient());
     }
 
     protected void initializeChrome(String uri, boolean isExternalURL) {
@@ -1455,7 +1428,7 @@ abstract public class GeckoApp
             layerView.initializeView(GeckoAppShell.getEventDispatcher());
             mLayerView = layerView;
             // bind the GeckoEditable instance to the new LayerView
-            GeckoAppShell.notifyIMEEnabled(GeckoEditableListener.IME_STATE_DISABLED, "", "", "", false);
+            GeckoAppShell.notifyIMEContext(GeckoEditableListener.IME_STATE_DISABLED, "", "", "");
         }
     }
 
@@ -1523,7 +1496,7 @@ abstract public class GeckoApp
         Uri data = intent.getData();
         if (data != null && "http".equals(data.getScheme())) {
             startupAction = StartupAction.PREFETCH;
-            GeckoAppShell.getHandler().post(new PrefetchRunnable(data.toString()));
+            ThreadUtils.postToBackgroundThread(new PrefetchRunnable(data.toString()));
         }
 
         Tabs.registerOnTabsChangedListener(this);
@@ -1610,13 +1583,14 @@ abstract public class GeckoApp
 
         if (!mIsRestoringActivity) {
             sGeckoThread = new GeckoThread(intent, passedUri);
+            ThreadUtils.setGeckoThread(sGeckoThread);
         }
         if (!ACTION_DEBUG.equals(action) &&
             GeckoThread.checkAndSetLaunchState(GeckoThread.LaunchState.Launching, GeckoThread.LaunchState.Launched)) {
             sGeckoThread.start();
         } else if (ACTION_DEBUG.equals(action) &&
             GeckoThread.checkAndSetLaunchState(GeckoThread.LaunchState.Launching, GeckoThread.LaunchState.WaitForDebugger)) {
-            mMainHandler.postDelayed(new Runnable() {
+            ThreadUtils.getUiHandler().postDelayed(new Runnable() {
                 @Override
                 public void run() {
                     GeckoThread.setLaunchState(GeckoThread.LaunchState.Launching);
@@ -1651,6 +1625,8 @@ abstract public class GeckoApp
         registerEventListener("Accessibility:Ready");
         registerEventListener("Shortcut:Remove");
         registerEventListener("WebApps:Open");
+        registerEventListener("WebApps:PreInstall");
+        registerEventListener("WebApps:PostInstall");
         registerEventListener("WebApps:Install");
         registerEventListener("WebApps:Uninstall");
         registerEventListener("Share:Text");
@@ -1658,6 +1634,8 @@ abstract public class GeckoApp
         registerEventListener("Wallpaper:Set");
         registerEventListener("Sanitize:ClearHistory");
         registerEventListener("Update:Check");
+        registerEventListener("Update:Download");
+        registerEventListener("Update:Install");
         registerEventListener("PrivateBrowsing:Data");
 
         if (SmsManager.getInstance() != null) {
@@ -1678,12 +1656,10 @@ abstract public class GeckoApp
             }
         });
 
-        final GeckoApp self = this;
-
         // End of the startup of our Java App
         mJavaUiStartupTimer.stop();
 
-        GeckoAppShell.getHandler().postDelayed(new Runnable() {
+        ThreadUtils.getBackgroundHandler().postDelayed(new Runnable() {
             @Override
             public void run() {
                 // Sync settings need Gecko to be loaded, so
@@ -1725,15 +1701,9 @@ abstract public class GeckoApp
             GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Viewport:Flush", null));
         }
 
-        // Homescreen Widget requests awesome bar
-        if (ACTION_WIDGET.equals(action)) {
-            if (mRestoreMode != RESTORE_NONE && !mIsRestoringActivity) {
-                addTab();
-            } else {
-                onSearchRequested();
-            }
+        if (ACTION_ALERT_CALLBACK.equals(action)) {
+            processAlertCallback(intent);
         }
-
     }
 
     public GeckoProfile getProfile() {
@@ -1764,11 +1734,12 @@ abstract public class GeckoApp
      * Enable Android StrictMode checks (for supported OS versions).
      * http://developer.android.com/reference/android/os/StrictMode.html
      */
-    private void enableStrictMode()
-    {
+    private void enableStrictMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.GINGERBREAD) {
             return;
         }
+
+        Log.d(LOGTAG, "Enabling Android StrictMode");
 
         StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder()
                                   .detectAll()
@@ -1820,6 +1791,21 @@ abstract public class GeckoApp
         }
     }
 
+    private void processAlertCallback(Intent intent) {
+        String alertName = "";
+        String alertCookie = "";
+        Uri data = intent.getData();
+        if (data != null) {
+            alertName = data.getQueryParameter("name");
+            if (alertName == null)
+                alertName = "";
+            alertCookie = data.getQueryParameter("cookie");
+            if (alertCookie == null)
+                alertCookie = "";
+        }
+        handleNotification(ACTION_ALERT_CALLBACK, alertName, alertCookie);
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         if (GeckoThread.checkLaunchState(GeckoThread.LaunchState.GeckoExiting)) {
@@ -1860,20 +1846,7 @@ abstract public class GeckoApp
             String uri = getURIFromIntent(intent);
             GeckoAppShell.sendEventToGecko(GeckoEvent.createURILoadEvent(uri));
         } else if (ACTION_ALERT_CALLBACK.equals(action)) {
-            String alertName = "";
-            String alertCookie = "";
-            Uri data = intent.getData();
-            if (data != null) {
-                alertName = data.getQueryParameter("name");
-                if (alertName == null)
-                    alertName = "";
-                alertCookie = data.getQueryParameter("cookie");
-                if (alertCookie == null)
-                    alertCookie = "";
-            }
-            handleNotification(ACTION_ALERT_CALLBACK, alertName, alertCookie);
-        } else if (ACTION_WIDGET.equals(action)) {
-            addTab();
+            processAlertCallback(intent);
         }
     }
 
@@ -1920,7 +1893,7 @@ abstract public class GeckoApp
         // User may have enabled/disabled accessibility.
         GeckoAccessibility.updateAccessibilitySettings();
 
-        GeckoBackgroundThread.getHandler().post(new Runnable() {
+        ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
                 SharedPreferences prefs =
@@ -1943,30 +1916,12 @@ abstract public class GeckoApp
     }
 
     @Override
-    public void onStop()
-    {
-        // We're about to be stopped, potentially in preparation for
-        // being destroyed.  We're killable after this point -- as I
-        // understand it, in extreme cases the process can be terminated
-        // without going through onDestroy.
-        //
-        // We might also get an onRestart after this; not sure what
-        // that would mean for Gecko if we were to kill it here.
-        // Instead, what we should do here is save prefs, session,
-        // etc., and generally mark the profile as 'clean', and then
-        // dirty it again if we get an onResume.
-
-        GeckoAppShell.sendEventToGecko(GeckoEvent.createStoppingEvent(isApplicationInBackground()));
-        super.onStop();
-    }
-
-    @Override
     public void onPause()
     {
         // In some way it's sad that Android will trigger StrictMode warnings
         // here as the whole point is to save to disk while the activity is not
         // interacting with the user.
-        GeckoBackgroundThread.getHandler().post(new Runnable() {
+        ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
                 SharedPreferences prefs =
@@ -1988,7 +1943,7 @@ abstract public class GeckoApp
     @Override
     public void onRestart()
     {
-        GeckoBackgroundThread.getHandler().post(new Runnable() {
+        ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
                 SharedPreferences prefs =
@@ -2003,20 +1958,8 @@ abstract public class GeckoApp
     }
 
     @Override
-    public void onStart()
-    {
-        GeckoAppShell.sendEventToGecko(GeckoEvent.createStartEvent(isApplicationInBackground()));
-        super.onStart();
-    }
-
-    @Override
     public void onDestroy()
     {
-        // Tell Gecko to shutting down; we'll end up calling System.exit()
-        // in onXreExit.
-        if (isFinishing())
-            GeckoAppShell.sendEventToGecko(GeckoEvent.createShutdownEvent());
-
         unregisterEventListener("log");
         unregisterEventListener("Reader:Added");
         unregisterEventListener("Reader:Removed");
@@ -2042,6 +1985,8 @@ abstract public class GeckoApp
         unregisterEventListener("Accessibility:Ready");
         unregisterEventListener("Shortcut:Remove");
         unregisterEventListener("WebApps:Open");
+        unregisterEventListener("WebApps:PreInstall");
+        unregisterEventListener("WebApps:PostInstall");
         unregisterEventListener("WebApps:Install");
         unregisterEventListener("WebApps:Uninstall");
         unregisterEventListener("Share:Text");
@@ -2049,6 +1994,8 @@ abstract public class GeckoApp
         unregisterEventListener("Wallpaper:Set");
         unregisterEventListener("Sanitize:ClearHistory");
         unregisterEventListener("Update:Check");
+        unregisterEventListener("Update:Download");
+        unregisterEventListener("Update:Install");
         unregisterEventListener("PrivateBrowsing:Data");
 
         deleteTempFiles();
@@ -2173,7 +2120,12 @@ abstract public class GeckoApp
     }
 
     public void handleNotification(String action, String alertName, String alertCookie) {
-        GeckoAppShell.handleNotification(action, alertName, alertCookie);
+        // If Gecko isn't running yet, we ignore the notification. Note that
+        // even if Gecko is running but it was restarted since the notification
+        // was created, the notification won't be handled (bug 849653).
+        if (GeckoThread.checkLaunchState(GeckoThread.LaunchState.GeckoRunning)) {
+            GeckoAppShell.handleNotification(action, alertName, alertCookie);
+        }
     }
 
     private void checkMigrateProfile() {
@@ -2182,7 +2134,7 @@ abstract public class GeckoApp
         if (profileDir != null) {
             final GeckoApp app = GeckoApp.mAppContext;
 
-            GeckoAppShell.getHandler().post(new Runnable() {
+            ThreadUtils.postToBackgroundThread(new Runnable() {
                 @Override
                 public void run() {
                     ProfileMigrator profileMigrator = new ProfileMigrator(app);
@@ -2327,7 +2279,7 @@ abstract public class GeckoApp
             return;
         }
 
-        if (mLayerView.isFullScreen()) {
+        if (mLayerView != null && mLayerView.isFullScreen()) {
             GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("FullScreen:Exit", null));
             return;
         }
@@ -2418,72 +2370,85 @@ abstract public class GeckoApp
         }
     }
 
-    public void notifyCheckUpdateResult(boolean result) {
-        GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Update:CheckResult", result ? "true" : "false"));
+    public void notifyCheckUpdateResult(String result) {
+        GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Update:CheckResult", result));
     }
 
     protected void connectGeckoLayerClient() {
         mLayerView.getLayerClient().notifyGeckoReady();
 
-        mLayerView.setTouchIntercepter(new OnInterceptTouchListener() {
-            private PointF initialPoint = null;
-
-            @Override
-            public boolean onInterceptTouchEvent(View view, MotionEvent event) {
-                return false;
-            }
-
-            @Override
-            public boolean onTouch(View view, MotionEvent event) {
-                if (event == null)
-                    return true;
-
-                int action = event.getAction();
-                PointF point = new PointF(event.getX(), event.getY());
-                if ((action & MotionEvent.ACTION_MASK) == MotionEvent.ACTION_DOWN) {
-                    initialPoint = point;
-                }
-
-                if (initialPoint != null && (action & MotionEvent.ACTION_MASK) == MotionEvent.ACTION_MOVE) {
-                    if (PointUtils.subtract(point, initialPoint).length() < PanZoomController.PAN_THRESHOLD) {
-                        // Don't send the touchmove event if if the users finger hasn't move far
-                        // Necessary for Google Maps to work correctlly. See bug 771099.
-                        return true;
-                    } else {
-                        initialPoint = null;
-                    }
-                }
-
-                GeckoAppShell.sendEventToGecko(GeckoEvent.createMotionEvent(event));
-                return true;
-            }
-        });
+        mLayerView.setTouchIntercepter(this);
     }
 
-    public static class MainLayout extends LinearLayout {
-        private OnInterceptTouchListener mOnInterceptTouchListener;
+    @Override
+    public boolean onInterceptTouchEvent(View view, MotionEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onTouch(View view, MotionEvent event) {
+        if (event == null)
+            return true;
+
+        int action = event.getActionMasked();
+        PointF point = new PointF(event.getX(), event.getY());
+        if (action == MotionEvent.ACTION_DOWN) {
+            mInitialTouchPoint = point;
+        }
+
+        if (mInitialTouchPoint != null && action == MotionEvent.ACTION_MOVE) {
+            if (PointUtils.subtract(point, mInitialTouchPoint).length() <
+                PanZoomController.PAN_THRESHOLD) {
+                // Don't send the touchmove event if if the users finger hasn't moved far.
+                // Necessary for Google Maps to work correctly. See bug 771099.
+                return true;
+            } else {
+                mInitialTouchPoint = null;
+            }
+        }
+
+        GeckoAppShell.sendEventToGecko(GeckoEvent.createMotionEvent(event));
+        return true;
+    }
+
+    public static class MainLayout extends RelativeLayout {
+        private TouchEventInterceptor mTouchEventInterceptor;
+        private MotionEventInterceptor mMotionEventInterceptor;
 
         public MainLayout(Context context, AttributeSet attrs) {
             super(context, attrs);
-            mOnInterceptTouchListener = null;
         }
 
-        public void setOnInterceptTouchListener(OnInterceptTouchListener listener) {
-            mOnInterceptTouchListener = listener;
+        public void setTouchEventInterceptor(TouchEventInterceptor interceptor) {
+            mTouchEventInterceptor = interceptor;
+        }
+
+        public void setMotionEventInterceptor(MotionEventInterceptor interceptor) {
+            mMotionEventInterceptor = interceptor;
         }
 
         @Override
         public boolean onInterceptTouchEvent(MotionEvent event) {
-            if (mOnInterceptTouchListener != null && mOnInterceptTouchListener.onInterceptTouchEvent(this, event))
+            if (mTouchEventInterceptor != null && mTouchEventInterceptor.onInterceptTouchEvent(this, event)) {
                 return true;
+            }
             return super.onInterceptTouchEvent(event);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
-            if (mOnInterceptTouchListener != null && mOnInterceptTouchListener.onTouch(this, event))
+            if (mTouchEventInterceptor != null && mTouchEventInterceptor.onTouch(this, event)) {
                 return true;
+            }
             return super.onTouchEvent(event);
+        }
+
+        @Override
+        public boolean onGenericMotionEvent(MotionEvent event) {
+            if (mMotionEventInterceptor != null && mMotionEventInterceptor.onInterceptMotionEvent(this, event)) {
+                return true;
+            }
+            return super.onGenericMotionEvent(event);
         }
 
         @Override
@@ -2514,7 +2479,7 @@ abstract public class GeckoApp
              */
             super.addView(view, index);
 
-            mMainHandler.post(new Runnable() { 
+            ThreadUtils.postToUiThread(new Runnable() {
                 @Override
                 public void run() {
                     mLayerView.hide();
@@ -2584,6 +2549,19 @@ abstract public class GeckoApp
                 shareCurrentUrl();
                 return true;
             }
+            case R.id.subscribe: {
+                Tab tab = Tabs.getInstance().getSelectedTab();
+                if (tab != null && tab.getFeedsEnabled()) {
+                    JSONObject args = new JSONObject();
+                    try {
+                        args.put("tabId", tab.getId());
+                    } catch (JSONException e) {
+                        Log.e(LOGTAG, "error building json arguments");
+                    }
+                    GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Feeds:Subscribe", args.toString()));
+                }
+                return true;
+            }
             case R.id.copyurl: {
                 Tab tab = Tabs.getInstance().getSelectedTab();
                 if (tab != null) {
@@ -2610,25 +2588,9 @@ abstract public class GeckoApp
         return false;
     }
 
-    public static void assertOnUiThread() {
-        Thread uiThread = mAppContext.getMainLooper().getThread();
-        assertOnThread(uiThread);
-    }
-
-    public static void assertOnGeckoThread() {
-        assertOnThread(sGeckoThread);
-    }
-
-    public static void assertOnThread(Thread expectedThread) {
-        Thread currentThread = Thread.currentThread();
-        long currentThreadId = currentThread.getId();
-        long expectedThreadId = expectedThread.getId();
-
-        if (currentThreadId != expectedThreadId) {
-            throw new IllegalThreadStateException("Expected thread " + expectedThreadId + " (\""
-                                                  + expectedThread.getName()
-                                                  + "\"), but running on thread " + currentThreadId
-                                                  + " (\"" + currentThread.getName() + ")");
-        }
+    protected NotificationClient makeNotificationClient() {
+        // Don't use a notification service; we may be killed in the background
+        // during downloads.
+        return new AppNotificationClient(getApplicationContext());
     }
 }

@@ -217,15 +217,9 @@
 
             <hbox id="urlbar-container" flex="1" observes="bcast_urlbarState">
               <hbox id="urlbar" flex="1">
-                <box id="identity-box" role="button"
-                     onclick="IdentityUI.handleIdentityButtonEvent();"
-                     onkeypress="IdentityUI.handleIdentityButtonEvent();">
+                <box id="identity-box" role="button">
                   <hbox id="identity-box-inner" align="center" mousethrough="always">
                     <image id="identity-icon"/>
-                    <hbox id="identity-icon-labels">
-                      <label id="identity-icon-label" class="plain" flex="1"/>
-                      <label id="identity-icon-country-label" class="plain"/>
-                    </hbox>
                   </hbox>
                 </box>
 
@@ -264,23 +258,21 @@
             <scrollbox id="start-scrollbox" orient="horizontal" flex="1">
             <vbox id="start-topsites" class="meta-section">
               <label class="meta-section-title" value="&startTopSitesHeader.label;"/>
-              <richgrid id="start-topsites-grid" seltype="single" flex="1"/>
+              <richgrid id="start-topsites-grid" seltype="multiple" flex="1"/>
             </vbox>
-
             <vbox id="start-bookmarks" class="meta-section">
               <label class="meta-section-title" value="&startBookmarksHeader.label;"
                 onclick="PanelUI.show('bookmarks-container');"/>
-              <richgrid id="start-bookmarks-grid" seltype="single" flex="1"/>
+              <richgrid id="start-bookmarks-grid" seltype="multiple" flex="1"/>
             </vbox>
-
             <vbox id="start-history" class="meta-section">
               <label class="meta-section-title" value="&startHistoryHeader.label;"/>
-              <richgrid id="start-history-grid" seltype="single" flex="1"/>
+              <richgrid id="start-history-grid" seltype="multiple" flex="1"/>
             </vbox>
             <vbox id="start-remotetabs" class="meta-section">
               <label class="meta-section-title" value="&startRemoteTabsHeader.label;"
                 onclick="PanelUI.show('remotetabs-container');"/>
-              <richgrid id="start-remotetabs-grid" seltype="single" flex="1"/>
+              <richgrid id="start-remotetabs-grid" seltype="multiple" flex="1"/>
             </vbox>
             </scrollbox>
           </hbox>
@@ -319,7 +311,7 @@
 
     <!-- Windows 8 Appbar -->
     <appbar id="appbar" mousethrough="never" observes="bcast_windowState">
-      <!-- contextual actions temporarily hidden, pending #800996, #831918 -->
+      <!-- contextual actions temporarily hidden, pending #800996 -->
       <hbox id="contextualactions-tray" flex="1" hidden="true">
         <toolbarbutton id="delete-selected-button" hidden="true" oncommand="Appbar.dispatchContextualAction('delete')"/>
         <toolbarbutton id="restore-selected-button" hidden="true" oncommand="Appbar.dispatchContextualAction('restore')"/>
@@ -339,38 +331,6 @@
         <toolbarbutton id="pin-button" type="checkbox" oncommand="Appbar.onPinButton()"/>
       </hbox>
     </appbar>
-
-    <!-- popup for site identity information -->
-    <arrowbox id="identity-container" hidden="true" mode="unknownIdentity" offset="18" flex="1" type="dialog" observes="bcast_urlbarState">
-      <box id="identity-popup-container" flex="1" align="top">
-        <image id="identity-popup-icon"/>
-        <vbox id="identity-popup-content-box" flex="1">
-          <box id="identity-popup-connected-box" flex="1">
-            <label id="identity-popup-connectedToLabel" value="&identity.connectedTo2;"/>
-            <label id="identity-popup-connectedToLabel2" flex="1">&identity.unverifiedsite2;</label>
-            <description id="identity-popup-content-host" flex="1"/>
-          </box>
-          <box id="identity-popup-runBy-box">
-            <label id="identity-popup-runByLabel" value="&identity.runBy2;"/>
-            <description id="identity-popup-content-owner"/>
-            <description id="identity-popup-content-supplemental"/>
-          </box>
-          <description id="identity-popup-content-verifier"/>
-        </vbox>
-        <box id="identity-popup-encryption-box">
-          <image id="identity-popup-encryption-icon"/>
-          <description id="identity-popup-encryption-label"/>
-        </box>
-      </box>
-
-      <hbox id="pageactions-container" hidden="true">
-        <pageaction id="pageaction-password" title="&pageactions.password.forget;"
-          onclick="PageActions.forgetPassword(event);"/>
-        <pageaction id="pageaction-reset" title="&pageactions.reset;"
-          onclick="PageActions.clearPagePermissions(event);"/>
-        <pageaction id="pageaction-charset" title="&pageactions.charEncoding;" onclick="CharsetMenu.show();"/>
-      </hbox>
-    </arrowbox>
 
     <vbox id="panel-container" hidden="true" class="window-width window-height meta">
       <hbox id="panel-header">
@@ -442,10 +402,10 @@
         <button label="&sync.connect;" oncommand="WeaveGlue.tryConnect();" />
       </setting>
       <setting id="sync-connected" class="setting-group" title="&sync.connected;" type="control" collapsed="true">
-        <button id="sync-pairdevice" label="&sync.pair.title;" oncommand="SyncPairDevice.open();" />
+        <button id="sync-pairdevice" label="&sync.pair.button;" oncommand="SyncPairDevice.open();" />
       </setting>
       <setting id="sync-sync" class="setting-subgroup" type="control" collapsed="true">
-        <button id="sync-syncButton" label="&sync.syncNow;" oncommand="WeaveGlue.sync();"/>
+        <button id="sync-syncButton" label="&sync.syncNow2;" oncommand="WeaveGlue.sync();"/>
       </setting>
       <setting id="sync-device" class="setting-subgroup" type="string" title="&sync.deviceName;" onchange="WeaveGlue.changeName(this);" collapsed="true"/>
       <setting id="sync-disconnect" class="setting-subgroup" type="control" collapsed="true">
@@ -468,17 +428,39 @@
       <settings id="prefs-charencoding" label="&optionsHeader.char.title;">
         <setting pref="browser.menu.showCharacterEncoding" title="&optionsHeader.char.options.label;" type="bool"/>
       </settings>
-      <settings id="prefs-privdata" label="&optionsHeader.privacy.clearPrivateData.title;">
-        <setting title="&optionsHeader.privacy.clearPrivateData.label;" type="control">
-          <button id="prefs-clear-data" label="&optionsHeader.privacy.clearPrivateData.button;" command="cmd_sanitize"/>
-        </setting>
+      <settings id="prefs-privdata" label="&clearPrivateData.title;">
+        <description>&clearPrivateData.label;</description>
+
+        <checkbox id="prefs-privdata-history" itemName="history" label="&clearPrivateData.history;" checked="true" />
+
+        <checkbox id="prefs-privdata-other" label="&clearPrivateData.otherdata;"/>
+        <hbox id="prefs-privdata-subitems" >
+          <checkbox class="privdata-subitem-item" checked="true" itemName="downloads" label="&clearPrivateData.downloadHist;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="formdata" label="&clearPrivateData.formSearchHist;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="cookies" label="&clearPrivateData.cookies;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="passwords" label="&clearPrivateData.passwords;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="cache" label="&clearPrivateData.cache;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="offlineApps" label="&clearPrivateData.offline;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="siteSettings" label="&clearPrivateData.sitePref;"/>
+          <checkbox class="privdata-subitem-item" checked="true" itemName="sessions" label="&clearPrivateData.logins;"/>
+        </hbox>
+
+        <hbox align="center">
+          <button id="prefs-clear-data" label="&clearPrivateData.button;" command="cmd_sanitize" flex="1" />
+          <deck id="clear-notification" flex="2" selectedIndex="0" align="center">
+            <spacer id="clear-notification-empty"/>
+            <hbox id="clear-notification-clearing" align="center">
+              <!-- TODO: we need a more metro-y throbber. See bug 852622 -->
+              <image src="chrome://browser/skin/images/throbber.png" />
+            </hbox>
+            <description id="clear-notification-done">&clearPrivateData.done;</description>
+          </deck>
+        </hbox>
       </settings>
       <setting pref="signon.rememberSignons" title="&optionsHeader.privacy.passwords.label;" type="bool"/>
       <settings id="prefs-donottrack" label="&optionsHeader.privacy.doNotTrack.title;">
         <setting pref="privacy.donottrackheader.enabled" title="&optionsHeader.privacy.doNotTrack.label;" type="bool"/>
       </settings>
-
-      <setting id="prefs-master-password" title="&optionsHeader.privacy.masterPassword.label;" type="bool" oncommand="MasterPasswordUI.show(this.value);"/>
     </flyoutpanel>
 
     <!-- Form Helper form validation helper popup -->
@@ -495,7 +477,7 @@
           </hbox>
           <vbox id="syncsetup-simple" class="syncsetup-page" flex="1">
             <scrollbox id="sync-message" class="prompt-message" orient="vertical" flex="1">
-              <description class="syncsetup-desc" flex="1">&sync.setup.pair;</description>
+              <description class="syncsetup-desc" flex="1">&sync.setup.pair2;</description>
               <description class="link" flex="1" onclick="WeaveGlue.openTutorial();">&sync.setup.tutorial;</description>
               <separator/>
               <vbox flex="1" pack="center" align="start">
@@ -572,20 +554,25 @@
     </box>
 #endif
 
-    <box id="context-container" class="menu-container" hidden="true">
+    <box onclick="event.stopPropagation();" id="context-container" class="menu-container" hidden="true">
+      <!-- onclick is dom bug 835175 -->
       <vbox id="context-popup" class="menu-popup">
         <richlistbox id="context-commands" bindingType="contextmenu" flex="1">
           <!-- priority="low" items are hidden by default when a context is being displayed
                for two or more media types. (e.g. a linked image) -->
-          <!-- content types preceeded by '!' act as exclusion rules, the menu item will not 
+          <!-- content types preceeded by '!' act as exclusion rules, the menu item will not
                be displayed if the content type is present. -->
           <!-- Note the order of richlistitem here is important as it is reflected in the
                menu itself. -->
           <!-- ux spec: https://bug782810.bugzilla.mozilla.org/attachment.cgi?id=714804 -->
 
           <!-- Text related -->
-          <!-- for text inputs, this will copy selected text, or if no text is selected, copy all -->
-          <richlistitem id="context-copy" type="copy,selectable" onclick="ContextCommands.copy();">
+          <!-- for text inputs, this will cut selected text -->
+          <richlistitem id="context-cut" type="cut" onclick="ContextCommands.cut();">
+            <label value="&contextTextCut.label;"/>
+          </richlistitem>
+          <!-- for text inputs, this will copy selected text -->
+          <richlistitem id="context-copy" type="copy" onclick="ContextCommands.copy();">
             <label value="&contextTextCopy.label;"/>
           </richlistitem>
           <!-- only displayed if there is text on the clipboard -->
@@ -655,10 +642,10 @@
 
           <!-- App bar: 'more' button context menu -->
           <richlistitem id="context-findinpage" type="find-in-page" onclick="ContextCommands.findInPage();">
-          <label value="&appbarFindInPage.label;"/>
+          <label value="&appbarFindInPage2.label;"/>
           </richlistitem>
           <richlistitem id="context-viewondesktop" type="view-on-desktop" onclick="ContextCommands.viewOnDesktop();">
-          <label value="&appbarViewOnDesktop.label;"/>
+          <label value="&appbarViewOnDesktop2.label;"/>
           </richlistitem>
         </richlistbox>
       </vbox>

@@ -700,7 +700,7 @@ var tests = [
     onHidden: function (popup) {
       ok(!this.notifyObj.mainActionClicked, "mainAction was not clicked because it was too soon");
       ok(this.notifyObj.dismissalCallbackTriggered, "dismissal callback was triggered");
-    },
+    }
   },
   { // Test #24  - test security delay - after delay
     run: function () {
@@ -723,34 +723,140 @@ var tests = [
       ok(this.notifyObj.mainActionClicked, "mainAction was clicked after the delay");
       ok(!this.notifyObj.dismissalCallbackTriggered, "dismissal callback was not triggered");
       PopupNotifications.buttonDelay = PREF_SECURITY_DELAY_INITIAL;
-    },
+    }
   },
-  { // Test #25 - location change in background tab removes notification
+  { // Test #25 - reload removes notification
     run: function () {
-      this.oldSelectedTab = gBrowser.selectedTab;
-      this.newTab = gBrowser.addTab("about:blank");
-      gBrowser.selectedTab = this.newTab;
-
       loadURI("http://example.com/", function() {
-        gBrowser.selectedTab = this.oldSelectedTab;
-        let browser = gBrowser.getBrowserForTab(this.newTab);
-
-        this.notifyObj = new basicNotification();
-        this.notifyObj.browser = browser;
-        this.notifyObj.options.eventCallback = function (eventName) {
+        let notifyObj = new basicNotification();
+        notifyObj.options.eventCallback = function (eventName) {
           if (eventName == "removed") {
             ok(true, "Notification removed in background tab after reloading");
             executeSoon(function () {
-              gBrowser.removeTab(this.newTab);
               goNext();
-            }.bind(this));
+            });
           }
-        }.bind(this);
-        this.notification = showNotification(this.notifyObj);
+        };
+        showNotification(notifyObj);
+        executeSoon(function () {
+          gBrowser.selectedBrowser.reload();
+        });
+      });
+    }
+  },
+  { // Test #26 - location change in background tab removes notification
+    run: function () {
+      let oldSelectedTab = gBrowser.selectedTab;
+      let newTab = gBrowser.addTab("about:blank");
+      gBrowser.selectedTab = newTab;
+
+      loadURI("http://example.com/", function() {
+        gBrowser.selectedTab = oldSelectedTab;
+        let browser = gBrowser.getBrowserForTab(newTab);
+
+        let notifyObj = new basicNotification();
+        notifyObj.browser = browser;
+        notifyObj.options.eventCallback = function (eventName) {
+          if (eventName == "removed") {
+            ok(true, "Notification removed in background tab after reloading");
+            executeSoon(function () {
+              gBrowser.removeTab(newTab);
+              goNext();
+            });
+          }
+        };
+        showNotification(notifyObj);
         executeSoon(function () {
           browser.reload();
         });
-      }.bind(this));
+      });
+    }
+  },
+  { // Test #27 -  Popup notification anchor shouldn't disappear when a notification with the same ID is re-added in a background tab
+    run: function () {
+      loadURI("http://example.com/", function () {
+        let originalTab = gBrowser.selectedTab;
+        let bgTab = gBrowser.addTab("about:blank");
+        gBrowser.selectedTab = bgTab;
+        loadURI("http://example.com/", function () {
+          let anchor = document.createElement("box");
+          anchor.id = "test26-anchor";
+          anchor.className = "notification-anchor-icon";
+          PopupNotifications.iconBox.appendChild(anchor);
+
+          gBrowser.selectedTab = originalTab;
+
+          let fgNotifyObj = new basicNotification();
+          fgNotifyObj.anchorID = anchor.id;
+          fgNotifyObj.options.dismissed = true;
+          let fgNotification = showNotification(fgNotifyObj);
+
+          let bgNotifyObj = new basicNotification();
+          bgNotifyObj.anchorID = anchor.id;
+          bgNotifyObj.browser = gBrowser.getBrowserForTab(bgTab);
+          // show the notification in the background tab ...
+          let bgNotification = showNotification(bgNotifyObj);
+          // ... and re-show it
+          bgNotification = showNotification(bgNotifyObj);
+
+          ok(fgNotification.id, "notification has id");
+          is(fgNotification.id, bgNotification.id, "notification ids are the same");
+          is(anchor.getAttribute("showing"), "true", "anchor still showing");
+
+          fgNotification.remove();
+          gBrowser.removeTab(bgTab);
+          goNext();
+        });
+      });
+    }
+  },
+  { // Test #28 - location change in embedded frame removes notification
+    run: function () {
+      loadURI("data:text/html,<iframe id='iframe' src='http://example.com/'>", function () {
+        let notifyObj = new basicNotification();
+        notifyObj.options.eventCallback = function (eventName) {
+          if (eventName == "removed") {
+            ok(true, "Notification removed in background tab after reloading");
+            executeSoon(goNext);
+          }
+        };
+        showNotification(notifyObj);
+        executeSoon(function () {
+          content.document.getElementById("iframe")
+                          .setAttribute("src", "http://example.org/");
+        });
+      });
+    }
+  },
+  { // Test #29 -  Existing popup notification shouldn't disappear when adding a dismissed notification
+    run: function () {
+      this.notifyObj1 = new basicNotification();
+      this.notifyObj1.id += "_1";
+      this.notifyObj1.anchorID = "default-notification-icon";
+      this.notification1 = showNotification(this.notifyObj1);
+    },
+    onShown: function (popup) {
+      // Now show a dismissed notification, and check that it doesn't clobber
+      // the showing one.
+      this.notifyObj2 = new basicNotification();
+      this.notifyObj2.id += "_2";
+      this.notifyObj2.anchorID = "geo-notification-icon";
+      this.notifyObj2.options.dismissed = true;
+      this.notification2 = showNotification(this.notifyObj2);
+
+      checkPopup(popup, this.notifyObj1);
+
+      // check that both anchor icons are showing
+      is(document.getElementById("default-notification-icon").getAttribute("showing"), "true",
+         "notification1 anchor should be visible");
+      is(document.getElementById("geo-notification-icon").getAttribute("showing"), "true",
+         "notification2 anchor should be visible");
+
+      dismissNotification(popup);
+    },
+    onHidden: function(popup) {
+      this.notification1.remove();
+      this.notification2.remove();
     }
   }
 ];
@@ -771,8 +877,10 @@ function checkPopup(popup, notificationObj) {
   ok(notificationObj.shownCallbackTriggered, "shown callback was triggered");
 
   let notifications = popup.childNodes;
-  is(notifications.length, 1, "only one notification displayed");
+  is(notifications.length, 1, "one notification displayed");
   let notification = notifications[0];
+  if (!notification)
+    return;
   let icon = document.getAnonymousElementByAttribute(notification, "class", "popup-notification-icon");
   if (notificationObj.id == "geolocation") {
     isnot(icon.boxObject.width, 0, "icon for geo displayed");
@@ -839,7 +947,7 @@ function loadURI(uri, callback) {
   if (callback) {
     gBrowser.addEventListener("load", function() {
       // Ignore the about:blank load
-      if (gBrowser.currentURI.spec != uri)
+      if (gBrowser.currentURI.spec == "about:blank")
         return;
 
       gBrowser.removeEventListener("load", arguments.callee, true);

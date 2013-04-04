@@ -21,7 +21,9 @@
 #include "imgStatusTracker.h"
 #include "RasterImage.h"
 #include "VectorImage.h"
+#include "FrozenImage.h"
 #include "Image.h"
+#include "nsMediaFragmentURIParser.h"
 
 #include "ImageFactory.h"
 
@@ -174,6 +176,13 @@ GetContentSize(nsIRequest* aRequest)
 }
 
 /* static */ already_AddRefed<Image>
+ImageFactory::Freeze(Image* aImage)
+{
+  nsRefPtr<Image> frozenImage = new FrozenImage(aImage);
+  return frozenImage.forget();
+}
+
+/* static */ already_AddRefed<Image>
 ImageFactory::CreateRasterImage(nsIRequest* aRequest,
                                 imgStatusTracker* aStatusTracker,
                                 const nsCString& aMimeType,
@@ -206,6 +215,11 @@ ImageFactory::CreateRasterImage(nsIRequest* aRequest,
         NS_WARNING("About to hit OOM in imagelib!");
       }
     }
+  }
+
+  mozilla::net::nsMediaFragmentURIParser parser(aURI);
+  if (parser.HasResolution()) {
+    newImage->SetRequestedResolution(parser.GetResolution());
   }
 
   return newImage.forget();

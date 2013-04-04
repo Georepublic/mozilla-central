@@ -18,10 +18,9 @@ HTMLFrameSetElement::~HTMLFrameSetElement()
 }
 
 JSObject*
-HTMLFrameSetElement::WrapNode(JSContext *aCx, JSObject *aScope,
-                              bool *aTriedToWrap)
+HTMLFrameSetElement::WrapNode(JSContext *aCx, JSObject *aScope)
 {
-  return HTMLFrameSetElementBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return HTMLFrameSetElementBinding::Wrap(aCx, aScope, this);
 }
 
 NS_IMPL_ADDREF_INHERITED(HTMLFrameSetElement, Element)
@@ -363,14 +362,14 @@ HTMLFrameSetElement::IsEventAttributeName(nsIAtom *aName)
 // EventHandlerNonNull*, so allow passing in the type to use here.
 #define FORWARDED_EVENT_HELPER(name_, forwardto_, type_, getter_type_)         \
   NS_IMETHODIMP                                                                \
-  HTMLFrameSetElement::GetOn##name_(JSContext *cx, jsval *vp)                  \
+  HTMLFrameSetElement::GetOn##name_(JSContext *cx, JS::Value *vp)              \
   {                                                                            \
     getter_type_ h = forwardto_::GetOn##name_();                               \
     vp->setObjectOrNull(h ? h->Callable() : nullptr);                          \
     return NS_OK;                                                              \
   }                                                                            \
   NS_IMETHODIMP                                                                \
-  HTMLFrameSetElement::SetOn##name_(JSContext *cx, const jsval &v)             \
+  HTMLFrameSetElement::SetOn##name_(JSContext *cx, const JS::Value &v)         \
   {                                                                            \
     JSObject *obj = GetWrapper();                                              \
     if (!obj) {                                                                \

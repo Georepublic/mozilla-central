@@ -25,10 +25,6 @@
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CallbackObject.h"
 
-// nsGlobalWindow implements nsWrapperCache, but doesn't always use it. Don't
-// try to use it without fixing that first.
-class nsGlobalWindow;
-
 namespace mozilla {
 namespace dom {
 
@@ -107,14 +103,6 @@ UnwrapDOMObject(JSObject* obj)
              "Don't pass non-DOM objects to this function");
 
   JS::Value val = js::GetReservedSlot(obj, DOM_OBJECT_SLOT);
-  // XXXbz/khuey worker code tries to unwrap interface objects (which have
-  // nothing here).  That needs to stop.
-  // XXX We don't null-check UnwrapObject's result; aren't we going to crash
-  // anyway?
-  if (val.isUndefined()) {
-    return NULL;
-  }
-  
   return static_cast<T*>(val.toPrivate());
 }
 
@@ -172,7 +160,7 @@ UnwrapObject(JSContext* cx, JSObject* obj, U& value)
       return NS_ERROR_XPC_BAD_CONVERT_JS;
     }
 
-    obj = xpc::Unwrap(cx, obj, false);
+    obj = js::UnwrapObjectChecked(obj, /* stopAtOuter = */ false);
     if (!obj) {
       return NS_ERROR_XPC_SECURITY_MANAGER_VETO;
     }
@@ -201,21 +189,6 @@ inline bool
 IsNotDateOrRegExp(JSContext* cx, JSObject* obj)
 {
   MOZ_ASSERT(obj);
-  // For simplicity, check for security wrappers up front.  In case we
-  // have a security wrapper, don't forget to enter the compartment of
-  // the underlying object after unwrapping.
-  Maybe<JSAutoCompartment> ac;
-  if (js::IsWrapper(obj)) {
-    obj = xpc::Unwrap(cx, obj, false);
-    if (!obj) {
-      // Let's say it's not
-      return false;
-    }
-
-    ac.construct(cx, obj);
-  }
-
-  // Everything except dates and regexps is arraylike
   return !JS_ObjectIsDate(cx, obj) && !JS_ObjectIsRegExp(cx, obj);
 }
 
@@ -285,7 +258,7 @@ TraceProtoAndIfaceCache(JSTracer* trc, JSObject* obj)
   for (size_t i = 0; i < kProtoAndIfaceCacheCount; ++i) {
     JSObject* proto = protoAndIfaceArray[i];
     if (proto) {
-      JS_CALL_OBJECT_TRACER(trc, proto, "protoAndIfaceArray[i]");
+      JS_CallObjectTracer(trc, proto, "protoAndIfaceArray[i]");
     }
   }
 }
@@ -304,7 +277,7 @@ DestroyProtoAndIfaceCache(JSObject* obj)
  * Add constants to an object.
  */
 bool
-DefineConstants(JSContext* cx, JSObject* obj, ConstantSpec* cs);
+DefineConstants(JSContext* cx, JSObject* obj, const ConstantSpec* cs);
 
 struct JSNativeHolder
 {
@@ -372,7 +345,7 @@ CreateInterfaceObjects(JSContext* cx, JSObject* global, JSObject* protoProto,
  */
 bool
 DefineUnforgeableAttributes(JSContext* cx, JSObject* obj,
-                            Prefable<JSPropertySpec>* props);
+                            const Prefable<const JSPropertySpec>* props);
 
 bool
 DefineWebIDLBindingPropertiesOnXPCProto(JSContext* cx, JSObject* proto, const NativeProperties* properties);
@@ -425,7 +398,7 @@ struct HasWrapObject
 private:
   typedef char yes[1];
   typedef char no[2];
-  typedef JSObject* (nsWrapperCache::*WrapObject)(JSContext*, JSObject*, bool*);
+  typedef JSObject* (nsWrapperCache::*WrapObject)(JSContext*, JSObject*);
   template<typename U, U> struct SFINAE;
   template <typename V> static no& Check(SFINAE<WrapObject, &V::WrapObject>*);
   template <typename V> static yes& Check(...);
@@ -518,31 +491,34 @@ SetSystemOnlyWrapper(JSObject* obj, nsWrapperCache* cache, JSObject& wrapper)
 MOZ_ALWAYS_INLINE bool
 MaybeWrapValue(JSContext* cx, JS::Value* vp)
 {
-  if (vp->isGCThing()) {
-    void* gcthing = vp->toGCThing();
-    // Might be null if vp.isNull() :(
-    if (gcthing &&
-        js::GetGCThingCompartment(gcthing) != js::GetContextCompartment(cx)) {
+  if (vp->isString()) {
+    JSString* str = vp->toString();
+    if (JS::GetGCThingZone(str) != js::GetContextZone(cx)) {
+      return JS_WrapValue(cx, vp);
+    }
+    return true;
+  }
+
+  if (vp->isObject()) {
+    JSObject* obj = &vp->toObject();
+    if (js::GetObjectCompartment(obj) != js::GetContextCompartment(cx)) {
       return JS_WrapValue(cx, vp);
     }
 
     // We're same-compartment, but even then we might need to wrap
     // objects specially.  Check for that.
-    if (vp->isObject()) {
-      JSObject* obj = &vp->toObject();
-      if (GetSameCompartmentWrapperForDOMBinding(obj)) {
-        // We're a new-binding object, and "obj" now points to the right thing
-        *vp = JS::ObjectValue(*obj);
-        return true;
-      }
-
-      if (!IS_SLIM_WRAPPER(obj)) {
-        // We might need a SOW
-        return JS_WrapValue(cx, vp);
-      }
-
-      // Fall through to returning true
+    if (GetSameCompartmentWrapperForDOMBinding(obj)) {
+      // We're a new-binding object, and "obj" now points to the right thing
+      *vp = JS::ObjectValue(*obj);
+      return true;
     }
+
+    if (!IS_SLIM_WRAPPER(obj)) {
+      // We might need a SOW
+      return JS_WrapValue(cx, vp);
+    }
+
+    // Fall through to returning true
   }
 
   return true;
@@ -586,13 +562,11 @@ WrapNewBindingObject(JSContext* cx, JSObject* scope, T* value, JS::Value* vp)
       return false;
     }
 
-    bool triedToWrap;
-    obj = value->WrapObject(cx, scope, &triedToWrap);
+    obj = value->WrapObject(cx, scope);
     if (!obj) {
-      // At this point, obj is null, so just return false.  We could
-      // try to communicate triedToWrap to the caller, but in practice
-      // callers seem to be testing JS_IsExceptionPending(cx) to
-      // figure out whether WrapObject() threw instead.
+      // At this point, obj is null, so just return false.
+      // Callers seem to be testing JS_IsExceptionPending(cx) to
+      // figure out whether WrapObject() threw.
       return false;
     }
   }
@@ -647,7 +621,7 @@ WrapNewBindingNonWrapperCachedObject(JSContext* cx, JSObject* scope, T* value,
     // before we call JS_WrapValue.
     Maybe<JSAutoCompartment> ac;
     if (js::IsWrapper(scope)) {
-      scope = xpc::Unwrap(cx, scope, false);
+      scope = js::UnwrapObjectChecked(scope, /* stopAtOuter = */ false);
       if (!scope)
         return false;
       ac.construct(cx, scope);
@@ -680,30 +654,6 @@ NativeInterface2JSObjectAndThrowIfFailed(JSContext* aCx,
                                          xpcObjectHelper& aHelper,
                                          const nsIID* aIID,
                                          bool aAllowNativeWrapper);
-
-inline nsWrapperCache*
-GetWrapperCache(nsWrapperCache* cache)
-{
-  return cache;
-}
-
-inline nsWrapperCache*
-GetWrapperCache(nsGlobalWindow* not_allowed);
-
-inline nsWrapperCache*
-GetWrapperCache(void* p)
-{
-  return NULL;
-}
-
-// Helper template for smart pointers to resolve ambiguity between
-// GetWrappeCache(void*) and GetWrapperCache(const ParentObject&).
-template <template <typename> class SmartPtr, typename T>
-inline nsWrapperCache*
-GetWrapperCache(const SmartPtr<T>& aObject)
-{
-  return GetWrapperCache(aObject.get());
-}
 
 /**
  * A method to handle new-binding wrap failure, by possibly falling back to
@@ -825,28 +775,6 @@ FindEnumStringIndex(JSContext* cx, JS::Value v, const EnumEntry* values,
   *ok = EnumValueNotFound<InvalidValueFatal>(cx, chars, length, type);
   return -1;
 }
-
-struct ParentObject {
-  template<class T>
-  ParentObject(T* aObject) :
-    mObject(aObject),
-    mWrapperCache(GetWrapperCache(aObject))
-  {}
-
-  template<class T, template<typename> class SmartPtr>
-  ParentObject(const SmartPtr<T>& aObject) :
-    mObject(aObject.get()),
-    mWrapperCache(GetWrapperCache(aObject.get()))
-  {}
-
-  ParentObject(nsISupports* aObject, nsWrapperCache* aCache) :
-    mObject(aObject),
-    mWrapperCache(aCache)
-  {}
-
-  nsISupports* const mObject;
-  nsWrapperCache* const mWrapperCache;
-};
 
 inline nsWrapperCache*
 GetWrapperCache(const ParentObject& aParentObject)
@@ -985,6 +913,13 @@ WrapObject<JSObject>(JSContext* cx, JSObject* scope, JSObject* p, JS::Value* vp)
   return true;
 }
 
+inline bool
+WrapObject(JSContext* cx, JSObject* scope, JSObject& p, JS::Value* vp)
+{
+  vp->setObject(p);
+  return true;
+}
+
 bool
 WrapCallbackInterface(JSContext *cx, JSObject *scope, nsISupports* callback,
                       JS::Value* vp);
@@ -1029,8 +964,6 @@ struct WrapNativeParentFallback
   static inline JSObject* Wrap(JSContext* cx, JSObject* scope, T* parent,
                                nsWrapperCache* cache)
   {
-    MOZ_NOT_REACHED("Don't know how to deal with triedToWrap == false for "
-                    "non-nsISupports classes");
     return nullptr;
   }
 };
@@ -1062,17 +995,13 @@ struct WrapNativeParentHelper
       return obj;
     }
 
-    bool triedToWrap;
     // Inline this here while we have non-dom objects in wrapper caches.
     if (!CouldBeDOMBinding(parent)) {
-      triedToWrap = false;
+      obj = WrapNativeParentFallback<T>::Wrap(cx, scope, parent, cache);
     } else {
-      obj = parent->WrapObject(cx, scope, &triedToWrap);
+      obj = parent->WrapObject(cx, scope);
     }
 
-    if (!triedToWrap) {
-      obj = WrapNativeParentFallback<T>::Wrap(cx, scope, parent, cache);
-    }
     return obj;
   }
 };
@@ -1256,7 +1185,7 @@ InternJSString(JSContext* cx, jsid& id, const char* chars)
 // Spec needs a name property
 template <typename Spec>
 static bool
-InitIds(JSContext* cx, Prefable<Spec>* prefableSpecs, jsid* ids)
+InitIds(JSContext* cx, const Prefable<Spec>* prefableSpecs, jsid* ids)
 {
   MOZ_ASSERT(prefableSpecs);
   MOZ_ASSERT(prefableSpecs->specs);
@@ -1412,7 +1341,7 @@ protected:
 #endif
 };
 
-class NonNullLazyRootedObject : public Maybe<js::RootedObject>
+class NonNullLazyRootedObject : public Maybe<JS::RootedObject>
 {
 public:
   operator JSObject&() const {
@@ -1421,7 +1350,7 @@ public:
   }
 };
 
-class LazyRootedObject : public Maybe<js::RootedObject>
+class LazyRootedObject : public Maybe<JS::RootedObject>
 {
 public:
   operator JSObject*() const {
@@ -1714,6 +1643,25 @@ void SetXrayExpandoChain(JSObject *obj, JSObject *chain);
 bool
 NativeToString(JSContext* cx, JSObject* wrapper, JSObject* obj, const char* pre,
                const char* post, JS::Value* v);
+
+HAS_MEMBER(JSBindingFinalized)
+
+template<class T, bool hasCallback=HasJSBindingFinalizedMember<T>::Value>
+struct JSBindingFinalized
+{
+  static void Finalized(T* self)
+  {
+  }
+};
+
+template<class T>
+struct JSBindingFinalized<T, true>
+{
+  static void Finalized(T* self)
+  {
+    self->JSBindingFinalized();
+  }
+};
 
 nsresult
 ReparentWrapper(JSContext* aCx, JSObject* aObj);

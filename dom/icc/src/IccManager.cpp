@@ -157,6 +157,18 @@ IccManager::IccCloseChannel(int32_t aChannel, nsIDOMDOMRequest** aRequest)
   return mProvider->IccCloseChannel(GetOwner(), aChannel, aRequest);
 }
 
+NS_IMETHODIMP
+IccManager::UpdateContact(const nsAString& aContactType,
+                          nsIDOMContact* aContact,
+                          const nsAString& aPin2,
+                          nsIDOMDOMRequest** aRequest)
+{
+  if (!mProvider) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return mProvider->UpdateContact(GetOwner(), aContactType, aContact, aPin2, aRequest);
+}
 
 NS_IMPL_EVENT_HANDLER(IccManager, stkcommand)
 NS_IMPL_EVENT_HANDLER(IccManager, stksessionend)
@@ -166,7 +178,7 @@ NS_IMPL_EVENT_HANDLER(IccManager, stksessionend)
 NS_IMETHODIMP
 IccManager::NotifyStkCommand(const nsAString& aMessage)
 {
-  nsRefPtr<StkCommandEvent> event = StkCommandEvent::Create(aMessage);
+  nsRefPtr<StkCommandEvent> event = StkCommandEvent::Create(this, aMessage);
   NS_ASSERTION(event, "This should never fail!");
 
   return event->Dispatch(ToIDOMEventTarget(), NS_LITERAL_STRING("stkcommand"));

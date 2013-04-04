@@ -94,10 +94,9 @@ public:
   NS_FORWARD_NSIDOMEVENTTARGET(nsXHREventTarget::)
   NS_DECL_NSIXMLHTTPREQUESTUPLOAD
 
-  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope,
-                               bool *triedToWrap)
+  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE
   {
-    return mozilla::dom::XMLHttpRequestUploadBinding::Wrap(cx, scope, this, triedToWrap);
+    return mozilla::dom::XMLHttpRequestUploadBinding::Wrap(cx, scope, this);
   }
   nsISupports* GetParentObject()
   {
@@ -132,10 +131,9 @@ public:
   nsXMLHttpRequest();
   virtual ~nsXMLHttpRequest();
 
-  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope,
-                               bool *triedToWrap)
+  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE
   {
-    return mozilla::dom::XMLHttpRequestBinding::Wrap(cx, scope, this, triedToWrap);
+    return mozilla::dom::XMLHttpRequestBinding::Wrap(cx, scope, this);
   }
   nsISupports* GetParentObject()
   {
@@ -154,7 +152,7 @@ public:
       do_QueryInterface(aGlobal.Get());
     if (!window || ! principal) {
       aRv.Throw(NS_ERROR_FAILURE);
-      return NULL;
+      return nullptr;
     }
 
     nsRefPtr<nsXMLHttpRequest> req = new nsXMLHttpRequest();
@@ -181,7 +179,7 @@ public:
 
   void Construct(nsIPrincipal* aPrincipal,
                  nsPIDOMWindow* aOwnerWindow,
-                 nsIURI* aBaseURI = NULL)
+                 nsIURI* aBaseURI = nullptr)
   {
     MOZ_ASSERT(aPrincipal);
     MOZ_ASSERT_IF(aOwnerWindow, aOwnerWindow->IsInnerWindow());
@@ -446,7 +444,7 @@ public:
 
   // This creates a trusted readystatechange event, which is not cancelable and
   // doesn't bubble.
-  static nsresult CreateReadystatechangeEvent(nsIDOMEvent** aDOMEvent);
+  nsresult CreateReadystatechangeEvent(nsIDOMEvent** aDOMEvent);
   void DispatchProgressEvent(nsDOMEventTargetHelper* aTarget,
                              const nsAString& aType,
                              bool aLengthComputable,
@@ -655,7 +653,7 @@ protected:
   nsCOMPtr<nsIAsyncVerifyRedirectCallback> mRedirectCallback;
   nsCOMPtr<nsIChannel> mNewRedirectChannel;
   
-  jsval mResultJSON;
+  JS::Value mResultJSON;
   JSObject* mResultArrayBuffer;
 
   void ResetResponse();

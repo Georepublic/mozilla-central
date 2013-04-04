@@ -7,8 +7,10 @@
 #include "AudioContext.h"
 #include "nsContentUtils.h"
 #include "nsIDOMWindow.h"
+#include "nsPIDOMWindow.h"
 #include "mozilla/ErrorResult.h"
 #include "MediaStreamGraph.h"
+#include "mozilla/dom/AnalyserNode.h"
 #include "AudioDestinationNode.h"
 #include "AudioBufferSourceNode.h"
 #include "AudioBuffer.h"
@@ -45,10 +47,9 @@ AudioContext::~AudioContext()
 }
 
 JSObject*
-AudioContext::WrapObject(JSContext* aCx, JSObject* aScope,
-                         bool* aTriedToWrap)
+AudioContext::WrapObject(JSContext* aCx, JSObject* aScope)
 {
-  return AudioContextBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return AudioContextBinding::Wrap(aCx, aScope, this);
 }
 
 /* static */ already_AddRefed<AudioContext>
@@ -60,10 +61,9 @@ AudioContext::Constructor(const GlobalObject& aGlobal, ErrorResult& aRv)
     return nullptr;
   }
 
-  AudioContext* object = new AudioContext(window);
-  NS_ADDREF(object);
+  nsRefPtr<AudioContext> object = new AudioContext(window);
   window->AddAudioContext(object);
-  return object;
+  return object.forget();
 }
 
 already_AddRefed<AudioBufferSourceNode>
@@ -79,6 +79,11 @@ AudioContext::CreateBuffer(JSContext* aJSContext, uint32_t aNumberOfChannels,
                            uint32_t aLength, float aSampleRate,
                            ErrorResult& aRv)
 {
+  if (aSampleRate < 8000 || aSampleRate > 96000) {
+    aRv.Throw(NS_ERROR_DOM_SYNTAX_ERR);
+    return nullptr;
+  }
+
   if (aLength > INT32_MAX) {
     aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
     return nullptr;
@@ -94,6 +99,13 @@ AudioContext::CreateBuffer(JSContext* aJSContext, uint32_t aNumberOfChannels,
   return buffer.forget();
 }
 
+already_AddRefed<AnalyserNode>
+AudioContext::CreateAnalyser()
+{
+  nsRefPtr<AnalyserNode> analyserNode = new AnalyserNode(this);
+  return analyserNode.forget();
+}
+
 already_AddRefed<GainNode>
 AudioContext::CreateGain()
 {
@@ -104,7 +116,7 @@ AudioContext::CreateGain()
 already_AddRefed<DelayNode>
 AudioContext::CreateDelay(double aMaxDelayTime, ErrorResult& aRv)
 {
-  if (aMaxDelayTime > 0. && aMaxDelayTime < 3.) {
+  if (aMaxDelayTime > 0. && aMaxDelayTime < 180.) {
     nsRefPtr<DelayNode> delayNode = new DelayNode(this, aMaxDelayTime);
     return delayNode.forget();
   }
@@ -185,6 +197,24 @@ MediaStream*
 AudioContext::DestinationStream() const
 {
   return Destination()->Stream();
+}
+
+double
+AudioContext::CurrentTime() const
+{
+  return MediaTimeToSeconds(Destination()->Stream()->GetCurrentTime());
+}
+
+void
+AudioContext::Suspend()
+{
+  DestinationStream()->ChangeExplicitBlockerCount(1);
+}
+
+void
+AudioContext::Resume()
+{
+  DestinationStream()->ChangeExplicitBlockerCount(-1);
 }
 
 }

@@ -172,7 +172,6 @@ pref("browser.helperApps.deleteTempFileOnExit", false);
 
 /* password manager */
 pref("signon.rememberSignons", true);
-pref("signon.expireMasterPassword", false);
 pref("signon.SignonFileName", "signons.txt");
 
 /* find helper */
@@ -225,10 +224,6 @@ pref("accessibility.browsewithcaret", false);
 // Whether or not we show a dialog box informing the user that the update was
 // successfully applied.
 pref("app.update.showInstalledUI", false);
-
-// Whether the character encoding options are displayed in the app bar.
-pref("browser.menu.showCharacterEncoding", false);
-pref("intl.charsetmenu.browser.static", "chrome://browser/locale/browser.properties");
 
 // pointer to the default engine name
 pref("browser.search.defaultenginename", "chrome://browser/locale/browser.properties");
@@ -440,14 +435,15 @@ pref("app.update.showInstalledUI", false);
 pref("app.update.incompatible.mode", 0);
 pref("app.update.download.backgroundInterval", 0);
 
+// %APP% resolves to metrofirefox, which won't work until bug 845983 is fixed
 #ifdef MOZ_OFFICIAL_BRANDING
 pref("app.update.interval", 86400);
-pref("app.update.url.manual", "http://www.mozilla.com/%LOCALE%/m/");
-pref("app.update.url.details", "http://www.mozilla.com/%LOCALE%/mobile/releases/");
+pref("app.update.url.manual", "https://www.mozilla.org/%LOCALE%/firefox/update/");
+pref("app.update.url.details", "https://www.mozilla.org/%LOCALE%/firefox/releases/");
 #else
 pref("app.update.interval", 28800);
-pref("app.update.url.manual", "http://www.mozilla.com/%LOCALE%/mobile/");
-pref("app.update.url.details", "http://www.mozilla.com/%LOCALE%/mobile/");
+pref("app.update.url.manual", "https://www.mozilla.org/%LOCALE%/firefox/");
+pref("app.update.url.details", "https://www.mozilla.org/%LOCALE%/firefox/");
 #endif
 #endif
 
@@ -475,16 +471,8 @@ pref("services.sync.prefs.sync.signon.rememberSignons", true);
 pref("ui.dragThresholdX", 50);
 pref("ui.dragThresholdY", 50);
 
-pref("notification.feature.enabled", true);
-
 // prevent tooltips from showing up
 pref("browser.chrome.toolbar_tips", false);
-
-//  0: don't show fullscreen keyboard
-//  1: always show fullscreen keyboard
-// -1: show fullscreen keyboard based on threshold pref
-pref("widget.ime.android.landscape_fullscreen", -1);
-pref("widget.ime.android.fullscreen_threshold", 250); // in hundreths of inches
 
 // Completely disable pdf.js as an option to preview pdfs within firefox.
 // Note: if this is not disabled it does not necessarily mean pdf.js is the pdf

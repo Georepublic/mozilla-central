@@ -59,17 +59,16 @@ CalleeTokenToFunction(CalleeToken token)
     JS_ASSERT(CalleeTokenIsFunction(token));
     return (JSFunction *)token;
 }
-static inline UnrootedScript
+static inline RawScript
 CalleeTokenToScript(CalleeToken token)
 {
     JS_ASSERT(GetCalleeTokenTag(token) == CalleeToken_Script);
     return (RawScript)(uintptr_t(token) & ~uintptr_t(0x3));
 }
 
-static inline UnrootedScript
+static inline RawScript
 ScriptFromCalleeToken(CalleeToken token)
 {
-    AutoAssertNoGC nogc;
     switch (GetCalleeTokenTag(token)) {
       case CalleeToken_Script:
         return CalleeTokenToScript(token);
@@ -77,7 +76,7 @@ ScriptFromCalleeToken(CalleeToken token)
         return CalleeTokenToFunction(token)->nonLazyScript();
     }
     JS_NOT_REACHED("invalid callee token tag");
-    return UnrootedScript(NULL);
+    return NULL;
 }
 
 // In between every two frames lies a small header describing both frames. This
@@ -177,8 +176,8 @@ class OsiIndex
 // The descriptor is organized into three sections:
 // [ frame size | constructing bit | frame type ]
 // < highest - - - - - - - - - - - - - - lowest >
-static const uintptr_t FRAMESIZE_SHIFT = 3;
-static const uintptr_t FRAMETYPE_BITS = 3;
+static const uintptr_t FRAMESIZE_SHIFT = 4;
+static const uintptr_t FRAMETYPE_BITS = 4;
 static const uintptr_t FRAMETYPE_MASK = (1 << FRAMETYPE_BITS) - 1;
 
 // Ion frames have a few important numbers associated with them:
@@ -243,7 +242,14 @@ class FrameSizeClass
 // Data needed to recover from an exception.
 struct ResumeFromException
 {
-    void *stackPointer;
+    static const uint32_t RESUME_ENTRY_FRAME = 0;
+    static const uint32_t RESUME_CATCH = 1;
+    static const uint32_t RESUME_FORCED_RETURN = 2;
+
+    uint8_t *framePointer;
+    uint8_t *stackPointer;
+    uint8_t *target;
+    uint32_t kind;
 };
 
 void HandleException(ResumeFromException *rfe);
@@ -273,7 +279,7 @@ MakeFrameDescriptor(uint32_t frameSize, FrameType type)
 namespace js {
 namespace ion {
 
-UnrootedScript
+RawScript
 GetTopIonJSScript(JSContext *cx,
                   const SafepointIndex **safepointIndexOut = NULL,
                   void **returnAddrOut = NULL);
@@ -303,6 +309,9 @@ ReadFrameDoubleSlot(IonJSFrameLayout *fp, int32_t slot)
 {
     return *(double *)((char *)fp + OffsetOfFrameSlot(slot));
 }
+
+void
+MarkCalleeToken(JSTracer *trc, CalleeToken token);
 
 } /* namespace ion */
 } /* namespace js */

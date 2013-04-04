@@ -143,8 +143,8 @@ parser_groups = (
                                     help="display test output in a parseable format",
                                     action="store_true",
                                     default=False,
-                                    cmds=['test', 'testex', 'testpkgs',
-                                          'testall'])),
+                                    cmds=['run', 'test', 'testex', 'testpkgs',
+                                          'testaddons', 'testall'])),
         ]
      ),
 
@@ -660,7 +660,7 @@ def run(arguments=sys.argv[1:], target_cfg=None, pkg_cfg=None,
     # a Mozilla application (which includes running tests).
 
     use_main = False
-    inherited_options = ['verbose', 'enable_e10s']
+    inherited_options = ['verbose', 'enable_e10s', 'parseable']
     enforce_timeouts = False
 
     if command == "xpi":
@@ -669,7 +669,7 @@ def run(arguments=sys.argv[1:], target_cfg=None, pkg_cfg=None,
         if 'tests' not in target_cfg:
             target_cfg['tests'] = []
         inherited_options.extend(['iterations', 'filter', 'profileMemory',
-                                  'stopOnError', 'parseable'])
+                                  'stopOnError'])
         enforce_timeouts = True
     elif command == "run":
         use_main = True
@@ -825,8 +825,8 @@ def run(arguments=sys.argv[1:], target_cfg=None, pkg_cfg=None,
     if target_cfg.get('preferences'):
         harness_options['preferences'] = target_cfg.get('preferences')
 
-    harness_options['manifest'] = \
-        manifest.get_harness_options_manifest(options.bundle_sdk)
+    # Do not add entries for SDK modules
+    harness_options['manifest'] = manifest.get_harness_options_manifest(False)
 
     # Gives an hint to tell if sdk modules are bundled or not
     harness_options['is-sdk-bundled'] = options.bundle_sdk
@@ -912,6 +912,7 @@ def run(arguments=sys.argv[1:], target_cfg=None, pkg_cfg=None,
                              binary=options.binary,
                              profiledir=options.profiledir,
                              verbose=options.verbose,
+                             parseable=options.parseable,
                              enforce_timeouts=enforce_timeouts,
                              logfile=options.logfile,
                              addons=options.addons,

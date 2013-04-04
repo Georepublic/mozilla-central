@@ -148,14 +148,14 @@ js::StringIsArrayIndex(JSLinearString *str, uint32_t *indexp)
     return false;
 }
 
-UnrootedShape
+RawShape
 js::GetDenseArrayShape(JSContext *cx, HandleObject globalObj)
 {
     JS_ASSERT(globalObj);
 
     JSObject *proto = globalObj->global().getOrCreateArrayPrototype(cx);
     if (!proto)
-        return UnrootedShape(NULL);
+        return NULL;
 
     return EmptyShape::getInitialShape(cx, &ArrayClass, proto, proto->getParent(),
                                        gc::FINALIZE_OBJECT0);
@@ -495,8 +495,8 @@ array_length_setter(JSContext *cx, HandleObject obj, HandleId id, JSBool strict,
 
         uint32_t gap = oldlen - newlen;
         for (;;) {
-            jsid nid;
-            if (!JS_CHECK_OPERATION_LIMIT(cx) || !JS_NextProperty(cx, iter, &nid))
+            RootedId nid(cx);
+            if (!JS_CHECK_OPERATION_LIMIT(cx) || !JS_NextProperty(cx, iter, nid.address()))
                 return false;
             if (JSID_IS_VOID(nid))
                 break;
@@ -1331,8 +1331,6 @@ enum ComparatorMatchResult {
 ComparatorMatchResult
 MatchNumericComparator(const Value &v)
 {
-    AutoAssertNoGC nogc;
-
     if (!v.isObject())
         return Match_None;
 
@@ -1344,7 +1342,7 @@ MatchNumericComparator(const Value &v)
     if (!fun->hasScript())
         return Match_None;
 
-    UnrootedScript script = fun->nonLazyScript();
+    RawScript script = fun->nonLazyScript();
     jsbytecode *pc = script->code;
 
     uint16_t arg0, arg1;
@@ -2668,7 +2666,7 @@ NewArray(JSContext *cx, uint32_t length, RawObject protoArg, NewObjectKind newKi
     if (newKind != SingletonObject &&
         cache.lookupGlobal(&ArrayClass, cx->global(), allocKind, &entry))
     {
-        RootedObject obj(cx, cache.newObjectFromHit(cx, entry, InitialHeapForNewKind(newKind)));
+        RootedObject obj(cx, cache.newObjectFromHit(cx, entry, GetInitialHeap(newKind, &ArrayClass)));
         if (obj) {
             /* Fixup the elements pointer and length, which may be incorrect. */
             obj->setFixedElements();
@@ -2681,7 +2679,7 @@ NewArray(JSContext *cx, uint32_t length, RawObject protoArg, NewObjectKind newKi
 
     RootedObject proto(cx, protoArg);
     if (protoArg)
-        PoisonPtr(&protoArg);
+        JS::PoisonPtr(&protoArg);
 
     if (!proto && !FindProto(cx, &ArrayClass, &proto))
         return NULL;

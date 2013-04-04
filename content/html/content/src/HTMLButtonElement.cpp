@@ -187,7 +187,7 @@ bool
 HTMLButtonElement::IsDisabledForEvents(uint32_t aMessage)
 {
   nsIFormControlFrame* formControlFrame = GetFormControlFrame(false);
-  nsIFrame* formFrame = NULL;
+  nsIFrame* formFrame = nullptr;
   if (formControlFrame) {
     formFrame = do_QueryFrame(formControlFrame);
   }
@@ -548,10 +548,9 @@ HTMLButtonElement::IntrinsicState() const
 }
 
 JSObject*
-HTMLButtonElement::WrapNode(JSContext* aCx, JSObject* aScope,
-                            bool* aTriedToWrap)
+HTMLButtonElement::WrapNode(JSContext* aCx, JSObject* aScope)
 {
-  return HTMLButtonElementBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return HTMLButtonElementBinding::Wrap(aCx, aScope, this);
 }
 
 } // namespace dom

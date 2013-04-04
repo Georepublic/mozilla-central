@@ -8,6 +8,8 @@
 #ifndef jsion_compileinfo_h__
 #define jsion_compileinfo_h__
 
+#include "Registers.h"
+
 namespace js {
 namespace ion {
 
@@ -19,7 +21,7 @@ CountArgSlots(JSFunction *fun)
 
 enum ExecutionMode {
     // Normal JavaScript execution
-    SequentialExecution,
+    SequentialExecution = 0,
 
     // JavaScript code to be executed in parallel worker threads,
     // e.g. by ParallelArray
@@ -30,16 +32,30 @@ enum ExecutionMode {
 class CompileInfo
 {
   public:
-    CompileInfo(UnrootedScript script, JSFunction *fun, jsbytecode *osrPc, bool constructing,
+    CompileInfo(RawScript script, JSFunction *fun, jsbytecode *osrPc, bool constructing,
                 ExecutionMode executionMode)
       : script_(script), fun_(fun), osrPc_(osrPc), constructing_(constructing),
         executionMode_(executionMode)
     {
         JS_ASSERT_IF(osrPc, JSOp(*osrPc) == JSOP_LOOPENTRY);
-        nslots_ = script->nslots + CountArgSlots(fun);
+        nimplicit_ = 1 /* scope chain */ + (fun ? 1 /* this */: 0);
+        nargs_ = fun ? fun->nargs : 0;
+        nlocals_ = script->nfixed;
+        nstack_ = script->nslots - script->nfixed;
+        nslots_ = nimplicit_ + nargs_ + nlocals_ + nstack_;
     }
 
-    UnrootedScript script() const {
+    CompileInfo(unsigned nlocals)
+      : script_(NULL), fun_(NULL), osrPc_(NULL), constructing_(false)
+    {
+        nimplicit_ = 0;
+        nargs_ = 0;
+        nlocals_ = nlocals;
+        nstack_ = 1;  /* For FunctionCompiler::pushPhiInput/popPhiOutput */
+        nslots_ = nlocals_ + nstack_;
+    }
+
+    RawScript script() const {
         return script_;
     }
     JSFunction *fun() const {
@@ -65,7 +81,7 @@ class CompileInfo
     }
 
     const char *filename() const {
-        return script_->filename;
+        return script_->filename();
     }
     unsigned lineno() const {
         return script_->lineno;
@@ -90,16 +106,17 @@ class CompileInfo
     }
 
     unsigned nargs() const {
-        return fun()->nargs;
+        return nargs_;
     }
     unsigned nlocals() const {
-        return script()->nfixed;
+        return nlocals_;
     }
     unsigned ninvoke() const {
-        return nlocals() + CountArgSlots(fun());
+        return nslots_ - nstack_;
     }
 
     uint32_t scopeChainSlot() const {
+        JS_ASSERT(script());
         return 0;
     }
     uint32_t thisSlot() const {
@@ -107,14 +124,14 @@ class CompileInfo
         return 1;
     }
     uint32_t firstArgSlot() const {
-        JS_ASSERT(fun());
-        return 2;
+        return nimplicit_;
     }
     uint32_t argSlot(uint32_t i) const {
-        return firstArgSlot() + i;
+        JS_ASSERT(i < nargs_);
+        return nimplicit_ + i;
     }
     uint32_t firstLocalSlot() const {
-        return CountArgSlots(fun());
+        return nimplicit_ + nargs_;
     }
     uint32_t localSlot(uint32_t i) const {
         return firstLocalSlot() + i;
@@ -139,9 +156,13 @@ class CompileInfo
     }
 
   private:
+    unsigned nimplicit_;
+    unsigned nargs_;
+    unsigned nlocals_;
+    unsigned nstack_;
+    unsigned nslots_;
     JSScript *script_;
     JSFunction *fun_;
-    unsigned nslots_;
     jsbytecode *osrPc_;
     bool constructing_;
     ExecutionMode executionMode_;

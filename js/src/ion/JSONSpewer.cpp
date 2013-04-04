@@ -178,13 +178,13 @@ JSONSpewer::init(const char *path)
 }
 
 void
-JSONSpewer::beginFunction(UnrootedScript script)
+JSONSpewer::beginFunction(RawScript script)
 {
     if (inFunction_)
         endFunction();
 
     beginObject();
-    stringProperty("name", "%s:%d", script->filename, script->lineno);
+    stringProperty("name", "%s:%d", script->filename(), script->lineno);
     beginListProperty("passes");
 
     inFunction_ = true;

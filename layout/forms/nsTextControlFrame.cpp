@@ -742,16 +742,6 @@ nsresult nsTextControlFrame::SetFormProperty(nsIAtom* aName, const nsAString& aV
   return NS_OK;
 }
 
-nsresult
-nsTextControlFrame::GetFormProperty(nsIAtom* aName, nsAString& aValue) const
-{
-  NS_ASSERTION(nsGkAtoms::value != aName,
-               "Should get the value from the content node instead");
-  return NS_OK;
-}
-
-
-
 NS_IMETHODIMP
 nsTextControlFrame::GetEditor(nsIEditor **aEditor)
 {
@@ -778,7 +768,7 @@ nsTextControlFrame::SetSelectionInternal(nsIDOMNode *aStartNode,
   // Note that we use a new range to avoid having to do
   // isIncreasing checks to avoid possible errors.
 
-  nsRefPtr<nsRange> range = new nsRange();
+  nsRefPtr<nsRange> range = new nsRange(mContent);
   nsresult rv = range->SetStart(aStartNode, aStartOffset);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1470,7 +1460,11 @@ nsTextControlFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   DisplayBorderBackgroundOutline(aBuilder, aLists);
 
   nsIFrame* kid = mFrames.FirstChild();
-  nsDisplayListSet set(aLists, aLists.Content());
+  // Redirect all lists to the Content list so that nothing can escape, ie
+  // opacity creating stacking contexts that then get sorted with stacking
+  // contexts external to us.
+  nsDisplayList* content = aLists.Content();
+  nsDisplayListSet set(content, content, content, content, content, content);
 
   while (kid) {
     // If the frame is the placeholder frame, we should only show it if the

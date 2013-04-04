@@ -40,7 +40,7 @@ function promiseSocialUrlNotRemembered(url) {
 
 let gURLsNotRemembered = [];
 
-function runSocialTestWithProvider(manifest, callback) {
+function runSocialTestWithProvider(manifest, callback, finishcallback) {
   let SocialService = Cu.import("resource://gre/modules/SocialService.jsm", {}).SocialService;
 
   let manifests = Array.isArray(manifest) ? manifest : [manifest];
@@ -67,7 +67,7 @@ function runSocialTestWithProvider(manifest, callback) {
   function finishIfDone(callFinish) {
     finishCount++;
     if (finishCount == manifests.length)
-      Task.spawn(finishCleanUp).then(finish);
+      Task.spawn(finishCleanUp).then(finishcallback || finish);
   }
   function removeAddedProviders(cleanup) {
     manifests.forEach(function (m) {
@@ -90,6 +90,12 @@ function runSocialTestWithProvider(manifest, callback) {
       removeProvider(m.origin, callback);
     });
   }
+  function finishSocialTest(cleanup) {
+    // disable social before removing the providers to avoid providers
+    // being activated immediately before we get around to removing it.
+    Services.prefs.clearUserPref("social.enabled");
+    removeAddedProviders(cleanup);
+  }
 
   let providersAdded = 0;
   let firstProvider;
@@ -111,12 +117,6 @@ function runSocialTestWithProvider(manifest, callback) {
         // Set the UI's provider (which enables the feature)
         Social.provider = firstProvider;
 
-        function finishSocialTest(cleanup) {
-          // disable social before removing the providers to avoid providers
-          // being activated immediately before we get around to removing it.
-          Services.prefs.clearUserPref("social.enabled");
-          removeAddedProviders(cleanup);
-        }
         registerCleanupFunction(function () {
           finishSocialTest(true);
         });
@@ -169,10 +169,13 @@ function runSocialTests(tests, cbPreTest, cbPostTest, cbFinish) {
 // A fairly large hammer which checks all aspects of the SocialUI for
 // internal consistency.
 function checkSocialUI(win) {
-  let win = win || window;
+  win = win || window;
   let doc = win.document;
   let provider = Social.provider;
   let enabled = win.SocialUI.enabled;
+  let active = Social.providers.length > 0 && !win.SocialUI._chromeless &&
+               !PrivateBrowsingUtils.isWindowPrivate(win);
+
   function isbool(a, b, msg) {
     is(!!a, !!b, msg);
   }
@@ -181,20 +184,27 @@ function checkSocialUI(win) {
     isbool(win.SocialSidebar.opened, enabled, "social sidebar open?");
   isbool(win.SocialChatBar.isAvailable, enabled && Social.haveLoggedInUser(), "chatbar available?");
   isbool(!win.SocialChatBar.chatbar.hidden, enabled && Social.haveLoggedInUser(), "chatbar visible?");
-  isbool(!win.SocialShareButton.shareButton.hidden, enabled && Social.haveLoggedInUser() && provider.recommendInfo, "share button visible?");
-  isbool(!doc.getElementById("social-toolbar-item").hidden, enabled, "toolbar items visible?");
-  if (enabled)
-    is(win.SocialToolbar.button.style.listStyleImage, 'url("' + provider.iconURL + '")', "toolbar button has provider icon");
+
+  let canShare = enabled && provider.recommendInfo && Social.haveLoggedInUser() && win.SocialShareButton.canSharePage(win.gBrowser.currentURI)
+  isbool(!win.SocialShareButton.shareButton.hidden, canShare, "share button visible?");
+  isbool(!doc.getElementById("social-toolbar-item").hidden, active, "toolbar items visible?");
+  if (active)
+    is(win.SocialToolbar.button.style.listStyleImage, 'url("' + Social.defaultProvider.iconURL + '")', "toolbar button has provider icon");
+  // the menus should always have the provider name
+  if (provider) {
+    for (let id of ["menu_socialSidebar", "menu_socialAmbientMenu"])
+      is(document.getElementById(id).getAttribute("label"), Social.provider.name, "element has the provider name");
+  }
 
   // and for good measure, check all the social commands.
-  isbool(!doc.getElementById("Social:Toggle").hidden, enabled, "Social:Toggle visible?");
+  isbool(!doc.getElementById("Social:Toggle").hidden, active, "Social:Toggle visible?");
   isbool(!doc.getElementById("Social:ToggleNotifications").hidden, enabled, "Social:ToggleNotifications visible?");
   isbool(!doc.getElementById("Social:FocusChat").hidden, enabled && Social.haveLoggedInUser(), "Social:FocusChat visible?");
   isbool(doc.getElementById("Social:FocusChat").getAttribute("disabled"), enabled ? "false" : "true", "Social:FocusChat disabled?");
-  is(doc.getElementById("Social:SharePage").getAttribute("disabled"), enabled && Social.haveLoggedInUser() && provider.recommendInfo ? "false" : "true", "Social:SharePage visible?");
+  is(doc.getElementById("Social:SharePage").getAttribute("disabled"), canShare ? "false" : "true", "Social:SharePage visible?");
 
   // broadcasters.
-  isbool(!doc.getElementById("socialActiveBroadcaster").hidden, enabled, "socialActiveBroadcaster hidden?");
+  isbool(!doc.getElementById("socialActiveBroadcaster").hidden, active, "socialActiveBroadcaster hidden?");
 }
 
 // blocklist testing
@@ -222,6 +232,13 @@ function resetBlocklist() {
   Services.prefs.setCharPref("extensions.blocklist.url", _originalTestBlocklistURL);
 }
 
+function setManifestPref(name, manifest) {
+  let string = Cc["@mozilla.org/supports-string;1"].
+               createInstance(Ci.nsISupportsString);
+  string.data = JSON.stringify(manifest);
+  Services.prefs.setComplexValue(name, Ci.nsISupportsString, string);
+}
+
 function addWindowListener(aURL, aCallback) {
   Services.wm.addListener({
     onOpenWindow: function(aXULWindow) {
@@ -240,4 +257,12 @@ function addWindowListener(aURL, aCallback) {
     onCloseWindow: function(aXULWindow) { },
     onWindowTitleChange: function(aXULWindow, aNewTitle) { }
   });
+}
+
+function addTab(url, callback) {
+  let tab = gBrowser.selectedTab = gBrowser.addTab(url, {skipAnimation: true});
+  tab.linkedBrowser.addEventListener("load", function tabLoad(event) {
+    tab.linkedBrowser.removeEventListener("load", tabLoad, true);
+    executeSoon(function() {callback(tab)});
+  }, true);
 }

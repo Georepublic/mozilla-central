@@ -492,7 +492,7 @@ IsFontSizeInflationContainer(nsIFrame* aFrame,
   return !isInline;
 }
 
-NS_IMETHODIMP
+void
 nsFrame::Init(nsIContent*      aContent,
               nsIFrame*        aParent,
               nsIFrame*        aPrevInFlow)
@@ -560,8 +560,6 @@ nsFrame::Init(nsIContent*      aContent,
 
   if (IsBoxWrapped())
     InitBoxMetrics(false);
-
-  return NS_OK;
 }
 
 NS_IMETHODIMP nsFrame::SetInitialChildList(ChildListID     aListID,
@@ -868,7 +866,7 @@ nsIFrame::GetUsedMargin() const
   nsMargin margin(0, 0, 0, 0);
   if (((mState & NS_FRAME_FIRST_REFLOW) &&
        !(mState & NS_FRAME_IN_REFLOW)) ||
-      (mState & NS_FRAME_IS_SVG_TEXT))
+      IsSVGText())
     return margin;
 
   nsMargin *m = static_cast<nsMargin*>
@@ -891,7 +889,7 @@ nsIFrame::GetUsedBorder() const
   nsMargin border(0, 0, 0, 0);
   if (((mState & NS_FRAME_FIRST_REFLOW) &&
        !(mState & NS_FRAME_IN_REFLOW)) ||
-      (mState & NS_FRAME_IS_SVG_TEXT))
+      IsSVGText())
     return border;
 
   // Theme methods don't use const-ness.
@@ -927,7 +925,7 @@ nsIFrame::GetUsedPadding() const
   nsMargin padding(0, 0, 0, 0);
   if (((mState & NS_FRAME_FIRST_REFLOW) &&
        !(mState & NS_FRAME_IN_REFLOW)) ||
-      (mState & NS_FRAME_IS_SVG_TEXT))
+      IsSVGText())
     return padding;
 
   // Theme methods don't use const-ness.
@@ -2056,6 +2054,18 @@ IsRootScrollFrameActive(nsIPresShell* aPresShell)
   return sf && sf->IsScrollingActive();
 }
 
+static nsDisplayItem*
+WrapInWrapList(nsDisplayListBuilder* aBuilder,
+               nsIFrame* aFrame, nsDisplayList* aList)
+{
+  nsDisplayItem* item = aList->GetBottom();
+  if (!item || item->GetAbove() || item->GetUnderlyingFrame() != aFrame) {
+    return new (aBuilder) nsDisplayWrapList(aBuilder, aFrame, aList);
+  }
+  aList->RemoveBottom();
+  return item;
+}
+
 void
 nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
                                    nsIFrame*               aChild,
@@ -2290,7 +2300,7 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
       if (buildFixedPositionItem) {
         item = new (aBuilder) nsDisplayFixedPosition(aBuilder, child, child, &list);
       } else {
-        item = new (aBuilder) nsDisplayWrapList(aBuilder, child, &list);
+        item = WrapInWrapList(aBuilder, child, &list);
       }
       if (isSVG) {
         aLists.Content()->AppendNewToTop(item);
@@ -2313,8 +2323,7 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
     }
   } else if (!isSVG && disp->IsFloating(child)) {
     if (!list.IsEmpty()) {
-      aLists.Floats()->AppendNewToTop(new (aBuilder)
-          nsDisplayWrapList(aBuilder, child, &list));
+      aLists.Floats()->AppendNewToTop(WrapInWrapList(aBuilder, child, &list));
     }
   } else {
     aLists.Content()->AppendToTop(&list);
@@ -3710,8 +3719,9 @@ nsFrame::AddInlineMinWidth(nsRenderingContext *aRenderingContext,
                            nsIFrame::InlineMinWidthData *aData)
 {
   NS_ASSERTION(GetParent(), "Must have a parent if we get here!");
+  nsIFrame* parent = GetParent();
   bool canBreak = !CanContinueTextRun() &&
-    GetParent()->StyleText()->WhiteSpaceCanWrap();
+    parent->StyleText()->WhiteSpaceCanWrap(parent);
   
   if (canBreak)
     aData->OptionallyBreak(aRenderingContext);
@@ -4000,18 +4010,12 @@ nsFrame::ComputeSize(nsRenderingContext *aRenderingContext,
   }
 
   nscoord minWidth;
-  if (stylePos->mMinWidth.GetUnit() != eStyleUnit_Auto &&
-      !(isFlexItem && isHorizontalFlexItem)) {
+  if (!(isFlexItem && isHorizontalFlexItem)) {
     minWidth =
       nsLayoutUtils::ComputeWidthValue(aRenderingContext, this,
         aCBSize.width, boxSizingAdjust.width, boxSizingToMarginEdgeWidth,
         stylePos->mMinWidth);
   } else {
-    // Treat "min-width: auto" as 0.
-    // NOTE: Technically, "auto" is supposed to behave like "min-content" on
-    // flex items. However, we don't need to worry about that here, because
-    // flex items' min-sizes are intentionally ignored until the flex
-    // container explicitly considers them during space distribution.
     minWidth = 0;
   }
   result.width = std::max(minWidth, result.width);
@@ -7474,7 +7478,7 @@ ConvertSVGDominantBaselineToVerticalAlign(uint8_t aDominantBaseline)
 uint8_t
 nsIFrame::VerticalAlignEnum() const
 {
-  if (mState & NS_FRAME_IS_SVG_TEXT) {
+  if (IsSVGText()) {
     uint8_t dominantBaseline;
     for (const nsIFrame* frame = this; frame; frame = frame->GetParent()) {
       dominantBaseline = frame->StyleSVGReset()->mDominantBaseline;

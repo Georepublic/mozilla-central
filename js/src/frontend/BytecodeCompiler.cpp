@@ -12,6 +12,7 @@
 #include "frontend/BytecodeEmitter.h"
 #include "frontend/FoldConstants.h"
 #include "frontend/NameFunctions.h"
+#include "ion/AsmJS.h"
 #include "vm/GlobalObject.h"
 
 #include "jsinferinlines.h"
@@ -38,10 +39,10 @@ CheckLength(JSContext *cx, size_t length)
 }
 
 static bool
-SetSourceMap(JSContext *cx, TokenStream &tokenStream, ScriptSource *ss, UnrootedScript script)
+SetSourceMap(JSContext *cx, TokenStream &tokenStream, ScriptSource *ss, RawScript script)
 {
     if (tokenStream.hasSourceMap()) {
-        if (!ss->setSourceMap(cx, tokenStream.releaseSourceMap(), script->filename))
+        if (!ss->setSourceMap(cx, tokenStream.releaseSourceMap(), script->filename()))
             return false;
     }
     return true;
@@ -65,10 +66,16 @@ CheckArgumentsWithinEval(JSContext *cx, Parser<FullParseHandler> &parser, Handle
             return false;
     }
 
+    // It's an error to use |arguments| in a generator expression.
+    if (script->isGeneratorExp) {
+        parser.report(ParseError, false, NULL, JSMSG_BAD_GENEXP_BODY, js_arguments_str);
+        return false;
+    }
+
     return true;
 }
 
-UnrootedScript
+RawScript
 frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
                         HandleScript evalCaller,
                         const CompileOptions &options,
@@ -79,19 +86,6 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
 {
     RootedString source(cx, source_);
 
-    class ProbesManager
-    {
-        const char* filename;
-        unsigned lineno;
-
-      public:
-        ProbesManager(const char *f, unsigned l) : filename(f), lineno(l) {
-            Probes::compileScriptBegin(filename, lineno);
-        }
-        ~ProbesManager() { Probes::compileScriptEnd(filename, lineno); }
-    };
-    ProbesManager probesManager(options.filename, options.lineno);
-
     /*
      * The scripted callerFrame can only be given for compile-and-go scripts
      * and non-zero static level requires callerFrame.
@@ -100,18 +94,20 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
     JS_ASSERT_IF(staticLevel != 0, evalCaller);
 
     if (!CheckLength(cx, length))
-        return UnrootedScript(NULL);
+        return NULL;
     JS_ASSERT_IF(staticLevel != 0, options.sourcePolicy != CompileOptions::LAZY_SOURCE);
     ScriptSource *ss = cx->new_<ScriptSource>();
     if (!ss)
-        return UnrootedScript(NULL);
+        return NULL;
+    if (options.filename && !ss->setFilename(cx, options.filename))
+        return NULL;
     ScriptSourceHolder ssh(ss);
     SourceCompressionToken mysct(cx);
     SourceCompressionToken *sct = (extraSct) ? extraSct : &mysct;
     switch (options.sourcePolicy) {
       case CompileOptions::SAVE_SOURCE:
         if (!ss->setSourceCopy(cx, chars, length, false, sct))
-            return UnrootedScript(NULL);
+            return NULL;
         break;
       case CompileOptions::LAZY_SOURCE:
         ss->setSourceRetrievable();
@@ -122,14 +118,14 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
 
     Parser<FullParseHandler> parser(cx, options, chars, length, /* foldConstants = */ true);
     if (!parser.init())
-        return UnrootedScript(NULL);
+        return NULL;
     parser.sct = sct;
 
     GlobalSharedContext globalsc(cx, scopeChain, StrictModeFromContext(cx));
 
     ParseContext<FullParseHandler> pc(&parser, &globalsc, staticLevel, /* bodyid = */ 0);
     if (!pc.init())
-        return UnrootedScript(NULL);
+        return NULL;
 
     bool savedCallerFun =
         options.compileAndGo &&
@@ -138,13 +134,13 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
     Rooted<JSScript*> script(cx, JSScript::Create(cx, NullPtr(), savedCallerFun,
                                                   options, staticLevel, ss, 0, length));
     if (!script)
-        return UnrootedScript(NULL);
+        return NULL;
 
     // Global/eval script bindings are always empty (all names are added to the
     // scope dynamically via JSOP_DEFFUN/VAR).
     InternalHandle<Bindings*> bindings(script, &script->bindings);
     if (!Bindings::initWithTemporaryStorage(cx, bindings, 0, 0, NULL))
-        return UnrootedScript(NULL);
+        return NULL;
 
     // We can specialize a bit for the given scope chain if that scope chain is the global object.
     JSObject *globalScope = scopeChain && scopeChain == &scopeChain->global() ? (JSObject*) scopeChain : NULL;
@@ -154,7 +150,7 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
     BytecodeEmitter bce(/* parent = */ NULL, &parser, &globalsc, script, evalCaller, !!globalScope,
                         options.lineno, options.selfHostingMode);
     if (!bce.init())
-        return UnrootedScript(NULL);
+        return NULL;
 
     /* If this is a direct call to eval, inherit the caller's strictness.  */
     if (evalCaller && evalCaller->strict)
@@ -169,7 +165,7 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
             JSAtom *atom = AtomizeString<CanGC>(cx, source);
             jsatomid _;
             if (!atom || !bce.makeAtomIndex(atom, &_))
-                return UnrootedScript(NULL);
+                return NULL;
         }
 
         if (evalCaller && evalCaller->functionOrCallerFunction()) {
@@ -181,7 +177,7 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
             JSFunction *fun = evalCaller->functionOrCallerFunction();
             ObjectBox *funbox = parser.newFunctionBox(fun, &pc, fun->strict());
             if (!funbox)
-                return UnrootedScript(NULL);
+                return NULL;
             bce.objectList.add(funbox);
         }
     }
@@ -193,31 +189,31 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
             if (tt == TOK_EOF)
                 break;
             JS_ASSERT(tt == TOK_ERROR);
-            return UnrootedScript(NULL);
+            return NULL;
         }
 
         ParseNode *pn = parser.statement();
         if (!pn)
-            return UnrootedScript(NULL);
+            return NULL;
 
         if (canHaveDirectives) {
             if (!parser.maybeParseDirective(pn, &canHaveDirectives))
-                return UnrootedScript(NULL);
+                return NULL;
         }
 
         if (!FoldConstants(cx, &pn, &parser))
-            return UnrootedScript(NULL);
+            return NULL;
         if (!NameFunctions(cx, pn))
-            return UnrootedScript(NULL);
+            return NULL;
 
         if (!EmitTree(cx, &bce, pn))
-            return UnrootedScript(NULL);
+            return NULL;
 
         parser.handler.freeTree(pn);
     }
 
     if (!SetSourceMap(cx, parser.tokenStream, ss, script))
-        return UnrootedScript(NULL);
+        return NULL;
 
     if (evalCaller && evalCaller->functionOrCallerFunction()) {
         // Watch for uses of 'arguments' within the evaluated script, both as
@@ -227,13 +223,13 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
         for (AtomDefnRange r = pc.lexdeps->all(); !r.empty(); r.popFront()) {
             if (r.front().key() == arguments) {
                 if (!CheckArgumentsWithinEval(cx, parser, fun))
-                    return UnrootedScript(NULL);
+                    return NULL;
             }
         }
         for (AtomDefnListMap::Range r = pc.decls().all(); !r.empty(); r.popFront()) {
             if (r.front().key() == arguments) {
                 if (!CheckArgumentsWithinEval(cx, parser, fun))
-                    return UnrootedScript(NULL);
+                    return NULL;
             }
         }
 
@@ -247,7 +243,7 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
                     RootedScript script(cx, scope->asCall().callee().nonLazyScript());
                     if (script->argumentsHasVarBinding()) {
                         if (!JSScript::argumentsOptimizationFailed(cx, script))
-                            return UnrootedScript(NULL);
+                            return NULL;
                     }
                 }
                 scope = scope->enclosingScope();
@@ -260,15 +256,15 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain,
      * do have to emit that here.
      */
     if (Emit1(cx, &bce, JSOP_STOP) < 0)
-        return UnrootedScript(NULL);
+        return NULL;
 
     if (!JSScript::fullyInitFromEmitter(cx, script, &bce))
-        return UnrootedScript(NULL);
+        return NULL;
 
     bce.tellDebuggerAboutCompiledScript(cx);
 
     if (sct == &mysct && !sct->complete())
-        return UnrootedScript(NULL);
+        return NULL;
 
     return script;
 }
@@ -316,13 +312,16 @@ frontend::ParseScript(JSContext *cx, HandleObject scopeChain,
 // Compile a JS function body, which might appear as the value of an event
 // handler attribute in an HTML <INPUT> tag, or in a Function() constructor.
 bool
-frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions options,
-                              const AutoNameVector &formals, const jschar *chars, size_t length)
+frontend::CompileFunctionBody(JSContext *cx, MutableHandleFunction fun, CompileOptions options,
+                              const AutoNameVector &formals, const jschar *chars, size_t length,
+                              bool isAsmJSRecompile)
 {
     if (!CheckLength(cx, length))
         return false;
     ScriptSource *ss = cx->new_<ScriptSource>();
     if (!ss)
+        return false;
+    if (options.filename && !ss->setFilename(cx, options.filename))
         return false;
     ScriptSourceHolder ssh(ss);
     SourceCompressionToken sct(cx);
@@ -386,12 +385,6 @@ frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions 
             return false;
     }
 
-    BytecodeEmitter funbce(/* parent = */ NULL, &parser, funbox, script,
-                           /* evalCaller = */ NullPtr(),
-                           /* hasGlobalScope = */ false, options.lineno);
-    if (!funbce.init())
-        return false;
-
     if (!NameFunctions(cx, pn))
         return false;
 
@@ -402,10 +395,36 @@ frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions 
         pn = fn->pn_body;
     }
 
-    if (!SetSourceMap(cx, parser.tokenStream, ss, script))
-        return false;
+    bool generateBytecode = true;
+#ifdef JS_ION
+    JS_ASSERT_IF(isAsmJSRecompile, fn->pn_funbox->useAsm);
+    if (fn->pn_funbox->useAsm && !isAsmJSRecompile) {
+        RootedFunction moduleFun(cx);
+        if (!CompileAsmJS(cx, parser.tokenStream, fn, options,
+                          ss, /* bufStart = */ 0, /* bufEnd = */ length,
+                          &moduleFun))
+            return false;
 
-    if (!EmitFunctionScript(cx, &funbce, pn))
+        if (moduleFun) {
+            funbox->object = moduleFun;
+            fun.set(moduleFun); // replace the existing function with the LinkAsmJS native
+            generateBytecode = false;
+        }
+    }
+#endif
+
+    if (generateBytecode) {
+        BytecodeEmitter funbce(/* parent = */ NULL, &parser, funbox, script,
+                               /* evalCaller = */ NullPtr(),
+                               /* hasGlobalScope = */ false, options.lineno);
+        if (!funbce.init())
+            return false;
+
+        if (!EmitFunctionScript(cx, &funbce, pn))
+            return false;
+    }
+
+    if (!SetSourceMap(cx, parser.tokenStream, ss, script))
         return false;
 
     if (!sct.complete())

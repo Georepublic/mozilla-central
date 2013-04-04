@@ -52,6 +52,14 @@ TransplantObjectWithWrapper(JSContext *cx,
 JSObject *
 GetXBLScope(JSContext *cx, JSObject *contentScope);
 
+// Returns whether XBL scopes have been explicitly disabled for code running
+// in this compartment. See the comment around mAllowXBLScope.
+bool
+AllowXBLScope(JSCompartment *c);
+
+bool
+IsSandboxPrototypeProxy(JSObject *obj);
+
 } /* namespace xpc */
 
 #define XPCONNECT_GLOBAL_FLAGS                                                \
@@ -236,7 +244,8 @@ public:
                         JS::Value* rval, bool* sharedBuffer)
     {
         if (buf == sCachedBuffer &&
-            js::GetGCThingCompartment(sCachedString) == js::GetContextCompartment(cx)) {
+            JS::GetGCThingZone(sCachedString) == js::GetContextZone(cx))
+        {
             *rval = JS::StringValue(sCachedString);
             *sharedBuffer = false;
             return true;
@@ -386,19 +395,6 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats &rtStats,
                                  nsISupports *closure, size_t *rtTotal = NULL);
 
 /**
- * Given an arbitrary object, Unwrap will return the wrapped object if the
- * passed-in object is a wrapper that Unwrap knows about *and* the
- * currently running code has permission to access both the wrapper and
- * wrapped object.
- *
- * Since this is meant to be called from functions like
- * XPCWrappedNative::GetWrappedNativeOfJSObject, it does not set an
- * exception on |cx|.
- */
-JSObject *
-Unwrap(JSContext *cx, JSObject *wrapper, bool stopAtOuter = true);
-
-/**
  * Throws an exception on cx and returns false.
  */
 bool
@@ -407,7 +403,7 @@ Throw(JSContext *cx, nsresult rv);
 } // namespace xpc
 
 nsCycleCollectionParticipant *
-xpc_JSCompartmentParticipant();
+xpc_JSZoneParticipant();
 
 namespace mozilla {
 namespace dom {

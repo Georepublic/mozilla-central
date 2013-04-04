@@ -286,7 +286,7 @@ Telephony::SetSpeakerEnabled(bool aSpeakerEnabled)
 }
 
 NS_IMETHODIMP
-Telephony::GetActive(jsval* aActive)
+Telephony::GetActive(JS::Value* aActive)
 {
   if (!mActiveCall) {
     aActive->setNull();
@@ -307,7 +307,7 @@ Telephony::GetActive(jsval* aActive)
 }
 
 NS_IMETHODIMP
-Telephony::GetCalls(jsval* aCalls)
+Telephony::GetCalls(JS::Value* aCalls)
 {
   JSObject* calls = mCallsArray;
   if (!calls) {
@@ -506,7 +506,7 @@ Telephony::DispatchCallEvent(const nsAString& aType,
   MOZ_ASSERT(aCall);
 
   nsCOMPtr<nsIDOMEvent> event;
-  NS_NewDOMCallEvent(getter_AddRefs(event), nullptr, nullptr);
+  NS_NewDOMCallEvent(getter_AddRefs(event), this, nullptr, nullptr);
   NS_ASSERTION(event, "This should never fail!");
 
   nsCOMPtr<nsIDOMCallEvent> callEvent = do_QueryInterface(event);

@@ -25,7 +25,6 @@
 #include "nsPluginInstanceOwner.h"
 
 #include "nsPluginsDir.h"
-#include "nsPluginSafety.h"
 #include "nsPluginLogging.h"
 
 #include "nsIJSContextStack.h"
@@ -250,7 +249,7 @@ void
 nsNPAPIPlugin::PluginCrashed(const nsAString& pluginDumpID,
                              const nsAString& browserDumpID)
 {
-  nsRefPtr<nsPluginHost> host = dont_AddRef(nsPluginHost::GetInst());
+  nsRefPtr<nsPluginHost> host = nsPluginHost::GetInst();
   host->PluginCrashed(this, pluginDumpID, browserDumpID);
 }
 
@@ -889,7 +888,7 @@ _geturl(NPP npp, const char* relativeURL, const char* target)
 
     
     const char *name = nullptr;
-    nsRefPtr<nsPluginHost> host = dont_AddRef(nsPluginHost::GetInst());
+    nsRefPtr<nsPluginHost> host = nsPluginHost::GetInst();
     host->GetPluginName(inst, &name);
 
     if (name && strstr(name, "Adobe") && strstr(name, "Acrobat")) {
@@ -1526,9 +1525,9 @@ _evaluate(NPP npp, NPObject* npobj, NPString *script, NPVariant *result)
     "JS_ObjectToInnerObject should never return null with non-null input.");
 
   // Root obj and the rval (below).
-  jsval vec[] = { OBJECT_TO_JSVAL(obj), JSVAL_NULL };
+  JS::Value vec[] = { OBJECT_TO_JSVAL(obj), JSVAL_NULL };
   JS::AutoArrayRooter tvr(cx, ArrayLength(vec), vec);
-  jsval *rval = &vec[1];
+  JS::Value *rval = &vec[1];
 
   if (result) {
     // Initialize the out param to void
@@ -1624,7 +1623,7 @@ _getproperty(NPP npp, NPObject* npobj, NPIdentifier property,
   nsNPAPIPlugin* plugin = inst->GetPlugin();
   if (!plugin)
     return false;
-  nsRefPtr<nsPluginHost> host = dont_AddRef(nsPluginHost::GetInst());
+  nsRefPtr<nsPluginHost> host = nsPluginHost::GetInst();
   nsPluginTag* pluginTag = host->TagForPlugin(plugin);
   if (!pluginTag->mIsJavaPlugin)
     return true;

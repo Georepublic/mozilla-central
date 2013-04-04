@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mozilla/PodOperations.h"
 #include "mozilla/Util.h"
 
 #include "jstypes.h"
@@ -45,6 +46,8 @@ using namespace js::gc;
 using namespace js::types;
 
 using mozilla::ArrayLength;
+using mozilla::PodArrayZero;
+using mozilla::PodZero;
 
 /* Forward declarations for ErrorClass's initializer. */
 static JSBool
@@ -287,12 +290,10 @@ InitExnPrivate(JSContext *cx, HandleObject exnObject, HandleString message,
                 frame.funName = NULL;
             }
             RootedScript script(cx, i.script());
-            const char *cfilename = script->filename;
+            const char *cfilename = script->filename();
             if (!cfilename)
                 cfilename = "";
-            frame.filename = SaveScriptFilename(cx, cfilename);
-            if (!frame.filename)
-                return false;
+            frame.filename = cfilename;
             frame.ulineno = PCToLineNumber(script, i.pc());
         }
     }
@@ -334,7 +335,9 @@ InitExnPrivate(JSContext *cx, HandleObject exnObject, HandleString message,
     priv->exnType = exnType;
     for (size_t i = 0; i < frames.length(); ++i) {
         priv->stackElems[i].funName.init(frames[i].funName);
-        priv->stackElems[i].filename = frames[i].filename;
+        priv->stackElems[i].filename = JS_strdup(cx, frames[i].filename);
+        if (!priv->stackElems[i].filename)
+            return false;
         priv->stackElems[i].ulineno = frames[i].ulineno;
     }
 
@@ -362,8 +365,6 @@ exn_trace(JSTracer *trc, RawObject obj)
             JSStackTraceElem &elem = priv->stackElems[i];
             if (elem.funName)
                 MarkString(trc, &elem.funName, "stack trace function name");
-            if (IS_GC_MARKING_TRACER(trc) && elem.filename)
-                MarkScriptFilename(trc->runtime, elem.filename);
         }
     }
 }
@@ -391,6 +392,8 @@ exn_finalize(FreeOp *fop, RawObject obj)
                 JS_DropPrincipals(fop->runtime(), prin);
             fop->free_(report);
         }
+        for (size_t i = 0; i < priv->stackDepth; i++)
+            js_free(const_cast<char *>(priv->stackElems[i].filename));
         fop->free_(priv);
     }
 }
@@ -582,7 +585,7 @@ Exception(JSContext *cx, unsigned argc, Value *vp)
     } else {
         filename = cx->runtime->emptyString;
         if (!iter.done()) {
-            if (const char *cfilename = script->filename) {
+            if (const char *cfilename = script->filename()) {
                 filename = FilenameToString(cx, cfilename);
                 if (!filename)
                     return false;

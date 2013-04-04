@@ -25,6 +25,7 @@
 #include "InlineFrameAssembler.h"
 #include "jscompartment.h"
 #include "jsopcodeinlines.h"
+#include "jsworkers.h"
 
 #include "builtin/RegExp.h"
 #include "vm/RegExpStatics.h"
@@ -34,6 +35,7 @@
 #include "jstypedarrayinlines.h"
 #include "vm/RegExpObject-inl.h"
 
+#include "ion/BaselineJIT.h"
 #include "ion/Ion.h"
 
 #if JS_TRACE_LOGGING
@@ -524,12 +526,12 @@ mjit::Compiler::performCompilation()
 {
     JaegerSpew(JSpew_Scripts,
                "compiling script (file \"%s\") (line \"%d\") (length \"%d\") (chunk \"%d\") (usecount \"%d\")\n",
-               outerScript->filename, outerScript->lineno, outerScript->length, chunkIndex, (int) outerScript->getUseCount());
+               outerScript->filename(), outerScript->lineno, outerScript->length, chunkIndex, (int) outerScript->getUseCount());
 
     if (inlining()) {
         JaegerSpew(JSpew_Inlining,
                    "inlining calls in script (file \"%s\") (line \"%d\")\n",
-                   outerScript->filename, outerScript->lineno);
+                   outerScript->filename(), outerScript->lineno);
     }
 
 #ifdef JS_METHODJIT_SPEW
@@ -965,7 +967,7 @@ IonGetsFirstChance(JSContext *cx, JSScript *script, jsbytecode *pc, CompileReque
     // let JM take over until the PC is reached. Don't do this until the script
     // reaches a high use count, as if we do this prematurely we may get stuck
     // in JM code.
-    if (ion::js_IonOptions.parallelCompilation && script->hasIonScript() &&
+    if (OffThreadCompilationEnabled(cx) && script->hasIonScript() &&
         pc && script->ionScript()->osrPc() && script->ionScript()->osrPc() != pc &&
         script->getUseCount() >= ion::js_IonOptions.usesBeforeCompile * 2)
     {
@@ -990,6 +992,11 @@ mjit::CanMethodJIT(JSContext *cx, JSScript *script, jsbytecode *pc,
   checkOutput:
     if (!cx->methodJitEnabled)
         return Compile_Abort;
+
+#ifdef JS_ION
+    if (ion::IsBaselineEnabled(cx))
+        return Compile_Abort;
+#endif
 
     /*
      * If SPS (profiling) is enabled, then the emitted instrumentation has to be
@@ -1316,7 +1323,7 @@ mjit::Compiler::markUndefinedLocals()
     uint32_t depth = ssa.getFrame(a->inlineIndex).depth;
     for (uint32_t i = script_->nfixed; i < script_->nslots; i++) {
         Address local(JSFrameReg, sizeof(StackFrame) + (depth + i) * sizeof(Value));
-        masm.storeValue(ObjectValueCrashOnTouch(), local);
+        masm.storeValue(JS::ObjectValueCrashOnTouch(), local);
     }
 #endif
 }
@@ -4064,7 +4071,7 @@ mjit::Compiler::ionCompileHelper()
 #endif
 
     stubcc.linkExitDirect(trigger.inlineJump,
-                          ion::js_IonOptions.parallelCompilation
+                          OffThreadCompilationEnabled(cx)
                           ? secondTest
                           : trigger.stubLabel);
 
@@ -4736,7 +4743,7 @@ mjit::Compiler::inlineScriptedFunction(uint32_t argc, bool callingNew)
         a->exitState = exitState;
 
         JaegerSpew(JSpew_Inlining, "inlining call to script (file \"%s\") (line \"%d\")\n",
-                   script->filename, script->lineno);
+                   script->filename(), script->lineno);
 
         if (calleePrevious.isSet()) {
             calleePrevious.get().linkTo(masm.label(), &masm);
@@ -4821,7 +4828,7 @@ mjit::Compiler::inlineScriptedFunction(uint32_t argc, bool callingNew)
     }
 
     JaegerSpew(JSpew_Inlining, "finished inlining call to script (file \"%s\") (line \"%d\")\n",
-               script_->filename, script_->lineno);
+               script_->filename(), script_->lineno);
 
     if (sps.enabled()) {
         RegisterID reg = frame.allocReg();
@@ -6099,7 +6106,7 @@ mjit::Compiler::jsop_aliasedVar(ScopeCoordinate sc, bool get, bool poppedAfter)
     for (unsigned i = 0; i < sc.hops; i++)
         masm.loadPayload(Address(reg, ScopeObject::offsetOfEnclosingScope()), reg);
 
-    UnrootedShape shape = ScopeCoordinateToStaticScopeShape(cx, script_, PC);
+    RawShape shape = ScopeCoordinateToStaticScopeShape(cx, script_, PC);
     Address addr;
     if (shape->numFixedSlots() <= sc.slot) {
         masm.loadPtr(Address(reg, JSObject::offsetOfSlots()), reg);
@@ -6508,8 +6515,6 @@ mjit::Compiler::jsop_bindgname()
 bool
 mjit::Compiler::jsop_getgname(uint32_t index)
 {
-    AssertCanGC();
-
     /* Optimize undefined, NaN and Infinity. */
     PropertyName *name = script_->getName(index);
     if (name == cx->names().undefined) {
@@ -6556,9 +6561,9 @@ mjit::Compiler::jsop_getgname(uint32_t index)
          * reallocation of the global object's slots.
          */
         RootedId id(cx, NameToId(name));
-        UnrootedShape shape = globalObj->nativeLookup(cx, id);
+        RawShape shape = globalObj->nativeLookup(cx, id);
         if (shape && shape->hasDefaultGetter() && shape->hasSlot()) {
-            HeapSlot *value = &globalObj->getSlotRef(DropUnrooted(shape)->slot());
+            HeapSlot *value = &globalObj->getSlotRef(shape->slot());
             if (!value->isUndefined() && !propertyTypes->isOwnProperty(cx, globalType, true)) {
                 if (!watchGlobalReallocation())
                     return false;
@@ -7995,8 +8000,6 @@ mjit::Compiler::BarrierState
 mjit::Compiler::pushAddressMaybeBarrier(Address address, JSValueType type, bool reuseBase,
                                         bool testUndefined)
 {
-    AssertCanGC();
-
     if (!hasTypeBarriers(PC) && !testUndefined) {
         frame.push(address, type, reuseBase);
         return BarrierState();

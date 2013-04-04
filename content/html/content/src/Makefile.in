@@ -10,13 +10,8 @@ VPATH		= @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE		= content
 LIBRARY_NAME	= gkconhtmlcon_s
 LIBXUL_LIBRARY	= 1
-ifndef _MSC_VER
-FAIL_ON_WARNINGS = 1
-endif # !_MSC_VER
-
 
 EXPORTS		= \
 		HTMLPropertiesCollection.h \
@@ -44,6 +39,7 @@ EXPORTS_mozilla/dom = \
 		HTMLHRElement.h \
 		HTMLIFrameElement.h \
 		HTMLImageElement.h \
+		HTMLInputElement.h \
 		HTMLLabelElement.h \
 		HTMLLegendElement.h \
 		HTMLLIElement.h \
@@ -56,6 +52,7 @@ EXPORTS_mozilla/dom = \
 		HTMLModElement.h \
 		HTMLObjectElement.h \
 		HTMLOptionElement.h \
+		HTMLOptionsCollection.h \
 		HTMLOptGroupElement.h \
 		HTMLOutputElement.h \
 		HTMLParagraphElement.h \
@@ -64,6 +61,7 @@ EXPORTS_mozilla/dom = \
 		HTMLScriptElement.h \
 		HTMLSharedElement.h \
 		HTMLSharedListElement.h \
+		HTMLSharedObjectElement.h \
 		HTMLSpanElement.h \
 		HTMLStyleElement.h \
 		HTMLTableCaptionElement.h \
@@ -72,6 +70,7 @@ EXPORTS_mozilla/dom = \
 		HTMLTableElement.h \
 		HTMLTableRowElement.h \
 		HTMLTableSectionElement.h \
+		HTMLTemplateElement.h \
 		HTMLTextAreaElement.h \
 		HTMLTimeElement.h \
 		HTMLTitleElement.h \
@@ -108,7 +107,7 @@ CPPSRCS		= \
 		HTMLHeadingElement.cpp \
 		HTMLIFrameElement.cpp \
 		HTMLImageElement.cpp \
-		nsHTMLInputElement.cpp \
+		HTMLInputElement.cpp \
 		HTMLLIElement.cpp \
 		HTMLLabelElement.cpp \
 		HTMLLegendElement.cpp \
@@ -120,8 +119,9 @@ CPPSRCS		= \
 		HTMLMeterElement.cpp \
 		HTMLModElement.cpp \
 		HTMLObjectElement.cpp \
-		nsHTMLSharedObjectElement.cpp \
+		HTMLSharedObjectElement.cpp \
 		HTMLOptionElement.cpp \
+		HTMLOptionsCollection.cpp \
 		HTMLOptGroupElement.cpp \
 		HTMLOutputElement.cpp \
 		HTMLParagraphElement.cpp \
@@ -139,6 +139,7 @@ CPPSRCS		= \
 		HTMLTableColElement.cpp \
 		HTMLTableRowElement.cpp \
 		HTMLTableSectionElement.cpp \
+		HTMLTemplateElement.cpp \
 		HTMLTextAreaElement.cpp \
 		HTMLTimeElement.cpp \
 		HTMLTitleElement.cpp \
@@ -157,13 +158,12 @@ EXPORTS_mozilla/dom += \
 		$(NULL)
 
 CPPSRCS		+= \
-		nsHTMLAudioElement.cpp \
-		nsHTMLMediaElement.cpp \
+		HTMLAudioElement.cpp \
+		HTMLMediaElement.cpp \
 		MediaError.cpp \
-		nsMediaFragmentURIParser.cpp \
 		HTMLSourceElement.cpp \
 		TimeRanges.cpp \
-		nsHTMLVideoElement.cpp \
+		HTMLVideoElement.cpp \
 		$(NULL)
 endif
 
@@ -188,6 +188,7 @@ INCLUDES	+= \
 		-I$(srcdir)/../../../../editor/libeditor/base \
 		-I$(srcdir)/../../../../editor/libeditor/text \
 		-I$(srcdir)/../../../../editor/txmgr/src \
+		-I$(srcdir)/../../../../netwerk/base/src \
 		-I$(srcdir) \
 		-I$(topsrcdir)/xpcom/ds \
 		$(NULL)

@@ -92,8 +92,8 @@ nsMacDockSupport::GetBadgeText(nsAString& aBadgeText)
 
 NS_IMETHODIMP
 nsMacDockSupport::SetProgressState(nsTaskbarProgressState aState,
-                                   PRUint64 aCurrentValue,
-                                   PRUint64 aMaxValue)
+                                   uint64_t aCurrentValue,
+                                   uint64_t aMaxValue)
 {
   NS_ENSURE_ARG_RANGE(aState, 0, STATE_PAUSED);
   if (aState == STATE_NO_PROGRESS || aState == STATE_INDETERMINATE) {
@@ -187,7 +187,7 @@ nsMacDockSupport::RedrawIcon()
 
     int stepsPerSecond = isIndeterminate ? 60 : 30;
     mProgressDrawInfo.trackInfo.progress.phase =
-      PR_IntervalToMilliseconds(PR_IntervalNow()) * stepsPerSecond / 1000 % 32;
+      uint8_t(PR_IntervalToMilliseconds(PR_IntervalNow()) * stepsPerSecond / 1000);
 
     [icon lockFocus];
     CGContextRef ctx = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];

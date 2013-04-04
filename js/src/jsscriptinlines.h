@@ -14,6 +14,7 @@
 #include "jsopcode.h"
 #include "jsscript.h"
 
+#include "ion/AsmJS.h"
 #include "vm/GlobalObject.h"
 #include "vm/RegExpObject.h"
 #include "vm/Shape.h"
@@ -28,7 +29,7 @@ Bindings::Bindings()
 {}
 
 inline
-AliasedFormalIter::AliasedFormalIter(js::UnrootedScript script)
+AliasedFormalIter::AliasedFormalIter(js::RawScript script)
   : begin_(script->bindings.bindingArray()),
     p_(begin_),
     end_(begin_ + (script->funHasAnyAliasedFormal ? script->bindings.numArgs() : 0)),
@@ -45,13 +46,12 @@ CurrentScriptFileLineOrigin(JSContext *cx, const char **file, unsigned *linenop,
                             LineOption opt = NOT_CALLED_FROM_JSOP_EVAL)
 {
     if (opt == CALLED_FROM_JSOP_EVAL) {
-        AutoAssertNoGC nogc;
         JSScript *script = NULL;
         jsbytecode *pc = NULL;
         types::TypeScript::GetPcScript(cx, &script, &pc);
         JS_ASSERT(JSOp(*pc) == JSOP_EVAL);
         JS_ASSERT(*(pc + JSOP_EVAL_LENGTH) == JSOP_LINENO);
-        *file = script->filename;
+        *file = script->filename();
         *linenop = GET_UINT16(pc + JSOP_EVAL_LENGTH);
         *origin = script->originPrincipals;
         return;
@@ -65,18 +65,6 @@ ScriptCounts::destroy(FreeOp *fop)
 {
     fop->free_(pcCountsVector);
     fop->delete_(ionCounts);
-}
-
-inline void
-MarkScriptFilename(JSRuntime *rt, const char *filename)
-{
-    /*
-     * As an invariant, a ScriptFilenameEntry should not be 'marked' outside of
-     * a GC. Since SweepScriptFilenames is only called during a full gc,
-     * to preserve this invariant, only mark during a full gc.
-     */
-    if (rt->gcIsFull)
-        ScriptFilenameEntry::fromFilename(filename)->marked = true;
 }
 
 inline void
@@ -97,6 +85,13 @@ SetFrameArgumentsObject(JSContext *cx, AbstractFramePtr frame,
 
 } // namespace js
 
+inline const char *
+JSScript::filename() const
+{
+    JS_ASSERT(scriptSource_);
+    return scriptSource()->filename();
+}
+
 inline void
 JSScript::setFunction(JSFunction *fun)
 {
@@ -107,7 +102,10 @@ inline JSFunction *
 JSScript::getFunction(size_t index)
 {
     JSObject *funobj = getObject(index);
-    JS_ASSERT(funobj->isFunction() && funobj->toFunction()->isInterpreted());
+#ifdef DEBUG
+    JSFunction *fun = funobj->toFunction();
+    JS_ASSERT_IF(fun->isNative(), IsAsmJSModuleNative(fun->native()));
+#endif
     return funobj->toFunction();
 }
 
@@ -179,16 +177,16 @@ JSScript::destroyMJITInfo(js::FreeOp *fop)
 #endif /* JS_METHODJIT */
 
 inline void
-JSScript::writeBarrierPre(js::UnrootedScript script)
+JSScript::writeBarrierPre(js::RawScript script)
 {
 #ifdef JSGC_INCREMENTAL
-    if (!script)
+    if (!script || !script->runtime()->needsBarrier())
         return;
 
     JS::Zone *zone = script->zone();
     if (zone->needsBarrier()) {
         JS_ASSERT(!zone->rt->isHeapBusy());
-        js::UnrootedScript tmp = script;
+        js::RawScript tmp = script;
         MarkScriptUnbarriered(zone->barrierTracer(), &tmp, "write barrier");
         JS_ASSERT(tmp == script);
     }
@@ -196,7 +194,7 @@ JSScript::writeBarrierPre(js::UnrootedScript script)
 }
 
 inline void
-JSScript::writeBarrierPost(js::UnrootedScript script, void *addr)
+JSScript::writeBarrierPost(js::RawScript script, void *addr)
 {
 }
 

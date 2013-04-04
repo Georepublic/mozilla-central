@@ -401,7 +401,6 @@ pref("browser.link.open_newwindow.disabled_in_fullscreen", false);
 #endif
 
 // Tabbed browser
-pref("browser.tabs.autoHide", false);
 pref("browser.tabs.closeWindowWithLastTab", true);
 pref("browser.tabs.insertRelatedAfterCurrent", true);
 pref("browser.tabs.warnOnClose", true);
@@ -608,10 +607,6 @@ pref("pfs.datasource.url", "https://pfs.mozilla.org/plugins/PluginFinderService.
 pref("plugins.hide_infobar_for_missing_plugin", false);
 pref("plugins.hide_infobar_for_outdated_plugin", false);
 
-#ifdef XP_MACOSX
-pref("plugins.hide_infobar_for_carbon_failure_plugin", false);
-#endif
-
 pref("plugins.update.url", "https://www.mozilla.org/%LOCALE%/plugincheck/");
 pref("plugins.update.notifyUser", false);
 
@@ -771,7 +766,7 @@ pref("urlclassifier.gethashtables", "goog-phish-shavar,goog-malware-shavar");
 pref("urlclassifier.max-complete-age", 2700);
 #endif
 
-pref("browser.geolocation.warning.infoURL", "http://www.mozilla.com/%LOCALE%/firefox/geolocation/");
+pref("browser.geolocation.warning.infoURL", "https://www.mozilla.org/%LOCALE%/firefox/geolocation/");
 pref("browser.mixedcontent.warning.infoURL", "http://support.mozilla.org/1/%APP%/%VERSION%/%OS%/%LOCALE%/mixed-content/");
 
 pref("browser.EULA.version", 3);
@@ -886,7 +881,7 @@ pref("toolkit.crashreporter.pluginHangSubmitURL",
 
 // URL for "Learn More" for Crash Reporter
 pref("toolkit.crashreporter.infoURL",
-     "http://www.mozilla.com/legal/privacy/firefox.html#crash-reporter");
+     "https://www.mozilla.org/legal/privacy/firefox.html#crash-reporter");
 
 // base URL for web-based support pages
 pref("app.support.baseURL", "http://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
@@ -979,7 +974,6 @@ pref("services.sync.prefs.sync.browser.search.update", true);
 pref("services.sync.prefs.sync.browser.sessionstore.restore_on_demand", true);
 pref("services.sync.prefs.sync.browser.startup.homepage", true);
 pref("services.sync.prefs.sync.browser.startup.page", true);
-pref("services.sync.prefs.sync.browser.tabs.autoHide", true);
 pref("services.sync.prefs.sync.browser.tabs.closeButtons", true);
 pref("services.sync.prefs.sync.browser.tabs.loadInBackground", true);
 pref("services.sync.prefs.sync.browser.tabs.warnOnClose", true);
@@ -1042,8 +1036,8 @@ pref("devtools.toolbox.footer.height", 250);
 pref("devtools.toolbox.sidebar.width", 500);
 pref("devtools.toolbox.host", "bottom");
 pref("devtools.toolbox.selectedTool", "webconsole");
-pref("devtools.toolbox.toolbarSpec", '["tilt toggle","scratchpad","resize toggle"]');
-pref("devtools.toolbox.sideEnabled", false);
+pref("devtools.toolbox.toolbarSpec", '["paintflashing toggle","tilt toggle","scratchpad","resize toggle"]');
+pref("devtools.toolbox.sideEnabled", true);
 
 // Enable the Inspector
 pref("devtools.inspector.enabled", true);
@@ -1060,6 +1054,8 @@ pref("devtools.responsiveUI.enabled", true);
 // Enable the Debugger
 pref("devtools.debugger.enabled", true);
 pref("devtools.debugger.chrome-enabled", true);
+pref("devtools.debugger.chrome-debugging-host", "localhost");
+pref("devtools.debugger.chrome-debugging-port", 6080);
 pref("devtools.debugger.remote-host", "localhost");
 pref("devtools.debugger.remote-autoconnect", false);
 pref("devtools.debugger.remote-connection-retries", 3);
@@ -1070,8 +1066,8 @@ pref("devtools.debugger.ui.win-x", 0);
 pref("devtools.debugger.ui.win-y", 0);
 pref("devtools.debugger.ui.win-width", 900);
 pref("devtools.debugger.ui.win-height", 400);
-pref("devtools.debugger.ui.stackframes-width", 200);
-pref("devtools.debugger.ui.variables-width", 300);
+pref("devtools.debugger.ui.panes-sources-width", 200);
+pref("devtools.debugger.ui.panes-instruments-width", 300);
 pref("devtools.debugger.ui.pause-on-exceptions", false);
 pref("devtools.debugger.ui.panes-visible-on-startup", false);
 pref("devtools.debugger.ui.variables-sorting-enabled", true);
@@ -1100,6 +1096,9 @@ pref("devtools.styleeditor.transitions", true);
 
 // Enable tools for Chrome development.
 pref("devtools.chrome.enabled", false);
+
+// Default theme ("dark" or "light")
+pref("devtools.theme", "light");
 
 // Display the introductory text
 pref("devtools.gcli.hideIntro", false);
@@ -1145,6 +1144,9 @@ pref("devtools.editor.expandtab", true);
 //   provides programmer-specific editor features such as syntax highlighting,
 //   indenting and bracket recognition.
 pref("devtools.editor.component", "orion");
+
+// Enable the Font Inspector
+pref("devtools.fontinspector.enabled", true);
 
 // Whether the character encoding menu is under the main Firefox button. This
 // preference is a string so that localizers can alter it.
@@ -1219,3 +1221,15 @@ pref("social.sidebar.unload_timeout_ms", 10000);
 pref("social.toast-notifications.enabled", true);
 
 pref("dom.identity.enabled", false);
+
+// Override the Gecko-default value of false for Firefox.
+pref("plain_text.wrap_long_lines", true);
+
+#ifndef RELEASE_BUILD
+// Enable Web Audio for Firefox Desktop in Nightly and Aurora
+pref("media.webaudio.enabled", true);
+#endif
+
+// If this turns true, Moz*Gesture events are not called stopPropagation()
+// before content.
+pref("dom.debug.propagate_gesture_events_through_content", false);

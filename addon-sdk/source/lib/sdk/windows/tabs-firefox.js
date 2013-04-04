@@ -16,7 +16,7 @@ const { getOwnerWindow, getActiveTab, getTabs,
         openTab } = require("../tabs/utils");
 const { Options } = require("../tabs/common");
 const { observer: tabsObserver } = require("../tabs/observer");
-const { isWindowPrivate } = require("../private-browsing/utils");
+const { ignoreWindow } = require("../private-browsing/utils");
 
 const TAB_BROWSER = "tabbrowser";
 
@@ -91,13 +91,22 @@ const WindowTabTracker = Trait.compose({
     tabsObserver.removeListener("deactivate", this._onTabDeactivate);
   },
   _onTabEvent: function _onTabEvent(type, tab) {
-    if (this._window === getOwnerWindow(tab)) {
+    // Accept only tabs for the watched window, and ignore private tabs
+    // if addon doesn't have private permission
+    if (this._window === getOwnerWindow(tab) && !ignoreWindow(this._window)) {
       let options = this._tabOptions.shift() || {};
       options.tab = tab;
       options.window = this._public;
 
-      // creating tab wrapper and adding listener to "ready" events.
-      let wrappedTab = Tab(options);
+      // Ignore zombie tabs on open that have already been removed
+      if (type == "open" && !tab.linkedBrowser)
+        return;
+
+      // Create a tab wrapper on open event, otherwise, just fetch existing
+      // tab object
+      let wrappedTab = Tab(options, type !== "open");
+      if (!wrappedTab)
+        return;
 
       // Setting up an event listener for ready events.
       if (type === "open")

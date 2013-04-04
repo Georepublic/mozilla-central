@@ -29,14 +29,15 @@ class nsSVGImageFrame;
 
 namespace mozilla {
 class DOMSVGAnimatedPreserveAspectRatio;
-class DOMSVGTransform;
 class SVGFragmentIdentifier;
 class AutoSVGRenderingState;
 
 namespace dom {
 class SVGAngle;
 class SVGMatrix;
+class SVGTransform;
 class SVGViewElement;
+class SVGIRect;
 
 class SVGSVGElement;
 
@@ -80,8 +81,7 @@ public:
 
 typedef SVGGraphicsElement SVGSVGElementBase;
 
-class SVGSVGElement MOZ_FINAL : public SVGSVGElementBase,
-                                public nsIDOMSVGElement
+class SVGSVGElement MOZ_FINAL : public SVGSVGElementBase
 {
   friend class ::nsSVGOuterSVGFrame;
   friend class ::nsSVGInnerSVGFrame;
@@ -90,7 +90,7 @@ class SVGSVGElement MOZ_FINAL : public SVGSVGElementBase,
 
   SVGSVGElement(already_AddRefed<nsINodeInfo> aNodeInfo,
                 FromParser aFromParser);
-  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope, bool *aTriedToWrap) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
 
   friend nsresult (::NS_NewSVGSVGElement(nsIContent **aResult,
                                          already_AddRefed<nsINodeInfo> aNodeInfo,
@@ -100,11 +100,6 @@ public:
   // interfaces:
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(SVGSVGElement, SVGSVGElementBase)
-
-  // xxx I wish we could use virtual inheritance
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
-  NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGSVGElementBase::)
 
   /**
    * For use by zoom controls to allow currentScale, currentTranslate.x and
@@ -217,8 +212,6 @@ public:
     mViewportHeight = aSize.height;
   }
 
-  virtual nsIDOMNode* AsDOMNode() { return this; }
-
   // WebIDL
   already_AddRefed<SVGAnimatedLength> X();
   already_AddRefed<SVGAnimatedLength> Y();
@@ -247,9 +240,9 @@ public:
   already_AddRefed<SVGAngle> CreateSVGAngle();
   already_AddRefed<nsISVGPoint> CreateSVGPoint();
   already_AddRefed<SVGMatrix> CreateSVGMatrix();
-  already_AddRefed<nsIDOMSVGRect> CreateSVGRect();
-  already_AddRefed<DOMSVGTransform> CreateSVGTransform();
-  already_AddRefed<DOMSVGTransform> CreateSVGTransformFromMatrix(SVGMatrix& matrix);
+  already_AddRefed<SVGIRect> CreateSVGRect();
+  already_AddRefed<SVGTransform> CreateSVGTransform();
+  already_AddRefed<SVGTransform> CreateSVGTransformFromMatrix(SVGMatrix& matrix);
   Element* GetElementById(const nsAString& elementId, ErrorResult& rv);
   already_AddRefed<nsIDOMSVGAnimatedRect> ViewBox();
   already_AddRefed<DOMSVGAnimatedPreserveAspectRatio> PreserveAspectRatio();
@@ -398,6 +391,7 @@ class NS_STACK_CLASS AutoSVGRenderingState
 {
 public:
   AutoSVGRenderingState(const SVGImageContext* aSVGContext,
+                        float aFrameTime,
                         dom::SVGSVGElement* aRootElem
                         MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
     : mHaveOverrides(!!aSVGContext)
@@ -412,10 +406,14 @@ public:
       mRootElem->SetImageOverridePreserveAspectRatio(
           aSVGContext->GetPreserveAspectRatio());
     }
+
+    mOriginalTime = mRootElem->GetCurrentTime();
+    mRootElem->SetCurrentTime(aFrameTime); // Does nothing if there's no change.
   }
 
   ~AutoSVGRenderingState()
   {
+    mRootElem->SetCurrentTime(mOriginalTime);
     if (mHaveOverrides) {
       mRootElem->ClearImageOverridePreserveAspectRatio();
     }
@@ -423,6 +421,7 @@ public:
 
 private:
   const bool mHaveOverrides;
+  float mOriginalTime;
   const nsRefPtr<dom::SVGSVGElement> mRootElem;
   MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };

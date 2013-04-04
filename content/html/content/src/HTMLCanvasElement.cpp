@@ -766,7 +766,7 @@ HTMLCanvasElement::GetContext(const nsAString& aContextId,
       JS::AutoIdArray props(cx, JS_Enumerate(cx, &opts));
       for (size_t i = 0; !!props && i < props.length(); ++i) {
         jsid propid = props[i];
-        jsval propname, propval;
+        JS::Value propname, propval;
         if (!JS_IdToValue(cx, propid, &propname) ||
             !JS_GetPropertyById(cx, &opts, propid, &propval)) {
           return NS_ERROR_FAILURE;
@@ -974,7 +974,7 @@ HTMLCanvasElement::GetContextAtIndex(int32_t index)
   if (mCurrentContext && index == 0)
     return mCurrentContext;
 
-  return NULL;
+  return nullptr;
 }
 
 bool
