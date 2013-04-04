@@ -197,6 +197,8 @@ nsIFrame*
 NS_NewSVGFEImageFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 nsIFrame*
 NS_NewSVGFEUnstyledLeafFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
+nsIFrame*
+NS_NewSVGIFrameFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 
 #include "nsIScrollable.h"
 #include "nsINodeInfo.h"
@@ -4913,7 +4915,8 @@ nsCSSFrameConstructor::FindSVGData(Element* aElement,
     SIMPLE_SVG_CREATE(feOffset, NS_NewSVGFELeafFrame), 
     SIMPLE_SVG_CREATE(feSpecularLighting, NS_NewSVGFEContainerFrame),
     SIMPLE_SVG_CREATE(feTile, NS_NewSVGFELeafFrame), 
-    SIMPLE_SVG_CREATE(feTurbulence, NS_NewSVGFELeafFrame) 
+    SIMPLE_SVG_CREATE(feTurbulence, NS_NewSVGFELeafFrame),
+    SIMPLE_SVG_CREATE(iframe, NS_NewSVGIFrameFrame)
   };
 
   const FrameConstructionData* data =

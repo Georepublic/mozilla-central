@@ -33,6 +33,7 @@ CPP_SOURCES += [
     'nsSVGGeometryFrame.cpp',
     'nsSVGGlyphFrame.cpp',
     'nsSVGGradientFrame.cpp',
+    'nsSVGIFrameFrame.cpp',
     'nsSVGImageFrame.cpp',
     'nsSVGInnerSVGFrame.cpp',
     'nsSVGIntegrationUtils.cpp',

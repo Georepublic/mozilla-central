@@ -38,11 +38,11 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(GenericSVGFrameElement,
                                                   nsSVGElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFrameLoader)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
-NS_IMPL_ISUPPORTS_INHERITED3(GenericSVGFrameElement, GenericSVGFrameElementBase,
-                             nsIFrameLoaderOwner,
-                             nsIDOMMozBrowserFrame,
-                             nsIMozBrowserFrame)
-NS_IMPL_BOOL_ATTR(GenericSVGFrameElement, Mozbrowser, mozbrowser)
+NS_IMPL_ISUPPORTS_INHERITED1(GenericSVGFrameElement, GenericSVGFrameElementBase,
+                             nsIFrameLoaderOwner)
+                             //                             nsIDOMMozBrowserFrame,
+                             //nsIMozBrowserFrame)
+//NS_IMPL_BOOL_ATTR(GenericSVGFrameElement, Mozbrowser, mozbrowser)
 
 
 //int32_t
@@ -62,57 +62,72 @@ nsresult
 GenericSVGFrameElement::GetContentDocument(nsIDOMDocument** aContentDocument)
 {
   NS_PRECONDITION(aContentDocument, "Null out param");
-  *aContentDocument = nullptr;
+  nsCOMPtr<nsIDOMDocument> document = do_QueryInterface(GetContentDocument());
+  document.forget(aContentDocument);
+  return NS_OK;
+}
 
-  nsCOMPtr<nsIDOMWindow> win;
-  GetContentWindow(getter_AddRefs(win));
-
+nsIDocument*
+GenericSVGFrameElement::GetContentDocument()
+{
+  nsCOMPtr<nsPIDOMWindow> win = GetContentWindow();
   if (!win) {
-    return NS_OK;
+    return nullptr;
   }
 
-  return win->GetDocument(aContentDocument);
+  return win->GetDoc();
 }
 
 nsresult
 GenericSVGFrameElement::GetContentWindow(nsIDOMWindow** aContentWindow)
 {
   NS_PRECONDITION(aContentWindow, "Null out param");
-  *aContentWindow = nullptr;
+  nsCOMPtr<nsPIDOMWindow> window = GetContentWindow();
+  window.forget(aContentWindow);
+  return NS_OK;
+}
 
-  nsresult rv = EnsureFrameLoader();
-  NS_ENSURE_SUCCESS(rv, rv);
+already_AddRefed<nsPIDOMWindow>
+GenericSVGFrameElement::GetContentWindow()
+{
+  EnsureFrameLoader();
 
   if (!mFrameLoader) {
-    return NS_OK;
+    return nullptr;
   }
 
   bool depthTooGreat = false;
   mFrameLoader->GetDepthTooGreat(&depthTooGreat);
   if (depthTooGreat) {
     // Claim to have no contentWindow
-    return NS_OK;
+    return nullptr;
   }
 
   nsCOMPtr<nsIDocShell> doc_shell;
   mFrameLoader->GetDocShell(getter_AddRefs(doc_shell));
 
-  nsCOMPtr<nsPIDOMWindow> win(do_GetInterface(doc_shell));
+  nsCOMPtr<nsPIDOMWindow> win = do_GetInterface(doc_shell);
 
   if (!win) {
-    return NS_OK;
+    return nullptr;
   }
 
   NS_ASSERTION(win->IsOuterWindow(),
                "Uh, this window should always be an outer window!");
 
-  return CallQueryInterface(win, aContentWindow);
+  return win.forget();
 }
 
 nsresult
 GenericSVGFrameElement::EnsureFrameLoader()
 {
-  if (!GetParent() || !IsInDoc() || mFrameLoader || mFrameLoaderCreationDisallowed) {
+  if (!GetParent())
+    NS_WARNING("can't get Parent");
+  if (!IsInDoc())
+    NS_WARNING("is not doc");
+  
+  // if (!GetParent() || !IsInDoc() || mFrameLoader || mFrameLoaderCreationDisallowed) {
+  if (mFrameLoader || mFrameLoaderCreationDisallowed) {
     // If frame loader is there, we just keep it around, cached
     return NS_OK;
   }
@@ -126,7 +141,7 @@ GenericSVGFrameElement::EnsureFrameLoader()
 
   return NS_OK;
 }
-
+/*
 nsresult
 GenericSVGFrameElement::CreateRemoteFrameLoader(nsITabParent* aTabParent)
 {
@@ -136,7 +151,7 @@ GenericSVGFrameElement::CreateRemoteFrameLoader(nsITabParent* aTabParent)
   mFrameLoader->SetRemoteBrowser(aTabParent);
   return NS_OK;
 }
-
+*/
 NS_IMETHODIMP
 GenericSVGFrameElement::GetFrameLoader(nsIFrameLoader **aFrameLoader)
 {
@@ -290,22 +305,23 @@ GenericSVGFrameElement::CopyInnerTo(Element* aDest)
  * needs to have the right attributes, and its creator must have the right
  * permissions.)
  */
-/* [infallible] */ nsresult
+/* [infallible] */
+/*nsresult
 GenericSVGFrameElement::GetReallyIsBrowserOrApp(bool *aOut)
 {
   *aOut = false;
 
   // Fail if browser frames are globally disabled.
-  if (!Preferences::GetBool("dom.mozBrowserFramesEnabled")) {
-    return NS_OK;
-  }
+  //if (!Preferences::GetBool("dom.mozBrowserFramesEnabled")) {
+  //  return NS_OK;
+  //}
 
-  // Fail if this frame doesn't have the mozbrowser attribute.
-  bool hasMozbrowser = false;
-  GetMozbrowser(&hasMozbrowser);
-  if (!hasMozbrowser) {
-    return NS_OK;
-  }
+  // // Fail if this frame doesn't have the mozbrowser attribute.
+  // bool hasMozbrowser = false;
+  // GetMozbrowser(&hasMozbrowser);
+  // if (!hasMozbrowser) {
+  //   return NS_OK;
+  // }
 
   // Fail if the node principal isn't trusted.
   nsIPrincipal *principal = NodePrincipal();
@@ -319,8 +335,9 @@ GenericSVGFrameElement::GetReallyIsBrowserOrApp(bool *aOut)
   *aOut = permission == nsIPermissionManager::ALLOW_ACTION;
   return NS_OK;
 }
-
-/* [infallible] */ NS_IMETHODIMP
+*/
+/* [infallible] */
+/* NS_IMETHODIMP
 GenericSVGFrameElement::GetReallyIsApp(bool *aOut)
 {
   nsAutoString manifestURL;
@@ -328,9 +345,10 @@ GenericSVGFrameElement::GetReallyIsApp(bool *aOut)
 
   *aOut = !manifestURL.IsEmpty();
   return NS_OK;
-}
+  }*/
 
-/* [infallible] */ NS_IMETHODIMP
+/* [infallible] */
+/*NS_IMETHODIMP
 GenericSVGFrameElement::GetIsExpectingSystemMessage(bool *aOut)
 {
   *aOut = false;
@@ -341,9 +359,9 @@ GenericSVGFrameElement::GetIsExpectingSystemMessage(bool *aOut)
 
   *aOut = HasAttr(kNameSpaceID_None, nsGkAtoms::expectingSystemMessage);
   return NS_OK;
-}
+  }*/
 
-
+/*
 NS_IMETHODIMP
 GenericSVGFrameElement::GetAppManifestURL(nsAString& aOut)
 {
@@ -385,8 +403,8 @@ GenericSVGFrameElement::GetAppManifestURL(nsAString& aOut)
   }
 
   return NS_OK;
-}
-
+  }*/
+/*
 NS_IMETHODIMP
 GenericSVGFrameElement::DisallowCreateFrameLoader()
 {
@@ -404,3 +422,4 @@ GenericSVGFrameElement::AllowCreateFrameLoader()
   mFrameLoaderCreationDisallowed = false;
   return NS_OK;
 }
+*/

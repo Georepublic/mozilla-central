@@ -8,7 +8,7 @@
 #include "nsMappedAttributeElement.h"
 #include "nsSVGElement.h"
 #include "nsIFrameLoader.h"
-#include "nsIMozBrowserFrame.h"
+//#include "nsIMozBrowserFrame.h"
 #include "nsIDOMEventListener.h"
 
 #include "nsFrameLoader.h"
@@ -22,8 +22,8 @@ typedef mozilla::dom::SVGGraphicsElement GenericSVGFrameElementBase;
  * A helper class for frame elements
  */
 class GenericSVGFrameElement : public GenericSVGFrameElementBase,
-                               public nsIFrameLoaderOwner,
-                               public nsIMozBrowserFrame
+                               public nsIFrameLoaderOwner
+                               //                               public nsIMozBrowserFrame
 {
 public:
   GenericSVGFrameElement(already_AddRefed<nsINodeInfo> aNodeInfo,
@@ -40,8 +40,8 @@ public:
   NS_DECL_ISUPPORTS_INHERITED
   //  NS_IMETHOD QueryInterface(REFNSIID aIID, void** aInstancePtr);
   NS_DECL_NSIFRAMELOADEROWNER
-  NS_DECL_NSIDOMMOZBROWSERFRAME
-  NS_DECL_NSIMOZBROWSERFRAME
+  //NS_DECL_NSIDOMMOZBROWSERFRAME
+  //NS_DECL_NSIMOZBROWSERFRAME
 
   // nsIContent
   //virtual bool IsHTMLFocusable(bool aWithMouse, bool *aIsFocusable, int32_t *aTabIndex);
@@ -94,7 +94,9 @@ protected:
   // it makes sense.
   nsresult EnsureFrameLoader();
   nsresult LoadSrc();
+  nsIDocument* GetContentDocument();
   nsresult GetContentDocument(nsIDOMDocument** aContentDocument);
+  already_AddRefed<nsPIDOMWindow> GetContentWindow();
   nsresult GetContentWindow(nsIDOMWindow** aContentWindow);
 
   nsRefPtr<nsFrameLoader> mFrameLoader;
