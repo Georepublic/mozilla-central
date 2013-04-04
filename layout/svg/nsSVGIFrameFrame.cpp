@@ -97,7 +97,7 @@ NS_QUERYFRAME_HEAD(nsSVGIFrameFrame)
   NS_QUERYFRAME_ENTRY(nsISVGChildFrame)
 NS_QUERYFRAME_TAIL_INHERITING(nsSVGIFrameFrameBase)
 
-NS_IMETHODIMP
+void
 nsSVGIFrameFrame::Init(nsIContent* aContent,
                        nsIFrame*   aParent,
                        nsIFrame*   aPrevInFlow)
@@ -108,9 +108,7 @@ nsSVGIFrameFrame::Init(nsIContent* aContent,
   AddStateBits(aParent->GetStateBits() &
                (NS_STATE_SVG_NONDISPLAY_CHILD | NS_STATE_SVG_CLIPPATH_CHILD));
   //  nsresult rv = nsSVGIFrameFrameBase::Init(aContent, aParent, aPrevInFlow);
-    nsresult rv =  nsLeafFrame::Init(aContent, aParent, aPrevInFlow);
-  if (NS_FAILED(rv))
-    return rv;
+  nsLeafFrame::Init(aContent, aParent, aPrevInFlow);
 
   // We are going to create an inner view.  If we need a view for the
   // OuterFrame but we wait for the normal view creation path in
@@ -121,8 +119,7 @@ nsSVGIFrameFrame::Init(nsIContent* aContent,
   // really need it or not, and the inner view will get it as the
   // parent.
   if (!HasView()) {
-    rv = nsContainerFrame::CreateViewForFrame(this, true);
-    NS_ENSURE_SUCCESS(rv, rv);
+    nsContainerFrame::CreateViewForFrame(this, true);
   }
   EnsureInnerView();
 
@@ -154,14 +151,9 @@ nsSVGIFrameFrame::Init(nsIContent* aContent,
 
   AddStateBits(NS_FRAME_FONT_INFLATION_CONTAINER |
                NS_FRAME_FONT_INFLATION_FLOW_ROOT);
-  if (NS_SUCCEEDED(rv) &&
-      !(mState & NS_STATE_SVG_NONDISPLAY_CHILD)) {
-    NS_WARNING("to register object");
-    //nsSVGUtils::GetOuterSVGFrame(this)->RegisterForeignObject(this);
-  }
   nsContentUtils::AddScriptRunner(new AsyncSVGFrameInit(this));
 
-  return rv;
+  return;
 }
 
 nsIFrame*

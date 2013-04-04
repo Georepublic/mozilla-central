@@ -27,16 +27,15 @@ namespace mozilla {
 namespace dom {
 class DOMSVGAnimatedPreserveAspectRatio;
 
-class SVGIFrameElement : public SVGIFrameElementBase
-                       , public nsIDOMSVGElement
-                       , public nsIDOMGetSVGDocument
+class SVGIFrameElement MOZ_FINAL : public SVGIFrameElementBase
+                                 , public nsIDOMGetSVGDocument
 {
   friend class ::nsSVGIFrameFrame;
 
 protected:
   SVGIFrameElement(already_AddRefed<nsINodeInfo> aNodeInfo,
 	                 mozilla::dom::FromParser aFromParser);
-  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope, bool *aTriedToWrap) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
   virtual ~SVGIFrameElement();
 
   friend nsresult (::NS_NewSVGIFrameElement(nsIContent **aResult,
@@ -44,13 +43,11 @@ protected:
                                             mozilla::dom::FromParser aFromParser));
 
 public:
+  /*
   NS_IMPL_FROMCONTENT_WITH_TAG(SVGIFrameElement, kNameSpaceID_SVG, iframe)
 
   // nsISupports
   NS_DECL_ISUPPORTS_INHERITED
-
-  // nsIDOMNode
-  NS_FORWARD_NSIDOMNODE_TO_NSINODE
 
   // nsIDOMElement
   NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
@@ -60,8 +57,15 @@ public:
 
   // nsIDOMGetSVGDocument
   NS_DECL_NSIDOMGETSVGDOCUMENT
+  */
+  // interface
+  NS_DECL_ISUPPORTS_INHERITED
 
-
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(SVGIFrameElement,
+                                           SVGIFrameElementBase)
+  // nsIDOMGetSVGDocument
+  NS_DECL_NSIDOMGETSVGDOCUMENT
+    
   // nsSVGElement specializations:
   virtual gfxMatrix PrependLocalTransformsTo(const gfxMatrix &aMatrix,
                                              TransformTypes aWhich = eAllTransforms) const;
@@ -76,7 +80,6 @@ public:
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
   //virtual nsXPCClassInfo* GetClassInfo();
-  virtual nsIDOMNode* AsDOMNode() { return this; }
 
   // WebIDL
   already_AddRefed<SVGAnimatedLength> X();

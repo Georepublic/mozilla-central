@@ -468,22 +468,6 @@ nsFrameLoader::ReallyStartLoadingInternal()
     mDocShell->SetSandboxFlags(sandboxFlags);
   }
 
-  SVGIFrameElement *svgiframe =
-    SVGIFrameElement::FromContent(mOwnerContent);
-
-  if (svgiframe) {
-    sandboxFlags = svgiframe->GetSandboxFlags();
-
-    uint32_t parentSandboxFlags = svgiframe->OwnerDoc()->GetSandboxFlags();
-
-    if (sandboxFlags || parentSandboxFlags) {
-      // The child can only add restrictions, not remove them.
-      sandboxFlags |= parentSandboxFlags;
-
-      mDocShell->SetSandboxFlags(sandboxFlags);
-    }
-  }
-
   // If this frame is sandboxed with respect to origin we will set it up with
   // a null principal later in nsDocShell::DoURILoad.
   // We do it there to correctly sandbox content that was loaded into
