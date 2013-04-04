@@ -1560,7 +1560,7 @@ nsSVGElement::GetCtx() const
 
   while (ancestor && ancestor->IsSVG()) {
     nsIAtom* tag = ancestor->Tag();
-    if (tag == nsGkAtoms::foreignObject) {
+    if ((tag == nsGkAtoms::foreignObject || tag == nsGkAtoms::iframe)) {
       return nullptr;
     }
     if (tag == nsGkAtoms::svg) {

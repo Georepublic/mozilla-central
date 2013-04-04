@@ -13,6 +13,7 @@
 #include "nsSVGString.h"
 #include "nsSVGElement.h"
 #include "SVGAnimatedPreserveAspectRatio.h"
+#include "nsIDocument.h"
 
 nsresult NS_NewSVGIFrameElement(nsIContent **aResult,
                                 already_AddRefed<nsINodeInfo> aNodeInfo,
@@ -60,6 +61,11 @@ public:
   // nsIDOMGetSVGDocument
   NS_DECL_NSIDOMGETSVGDOCUMENT
 
+
+  // nsSVGElement specializations:
+  virtual gfxMatrix PrependLocalTransformsTo(const gfxMatrix &aMatrix,
+                                             TransformTypes aWhich = eAllTransforms) const;
+  
   // nsIContent
   //virtual bool ParseAttribute(int32_t aNamespaceID,
   //                              nsIAtom* aAttribute,
@@ -83,6 +89,8 @@ public:
   already_AddRefed<nsIDOMSVGAnimatedString> Src();
   already_AddRefed<nsIDOMSVGAnimatedString> Srcdoc();
   already_AddRefed<nsIDOMSVGAnimatedString> Sandbox();
+  already_AddRefed<nsIDocument> GetContentDocument();
+  already_AddRefed<nsIDOMWindow> GetContentWindow();
   void SetSandbox(const nsAString & aSandbox, ErrorResult& rv);
 
   //virtual nsresult AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,

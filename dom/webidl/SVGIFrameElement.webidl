@@ -33,7 +33,7 @@ interface SVGIFrameElement : SVGGraphicsElement {
   [Constant]
   readonly attribute SVGAnimatedString src;
   [Constant]
-  readonly attribute SVGAnimatedString srcdoc;
+  readonly attribute SVGAnimatedString srcdoc; // maybe DOM String
   // maybe to use DOMSettableTokenList
   [Constant]
   readonly attribute SVGAnimatedString sandbox;
@@ -41,4 +41,8 @@ interface SVGIFrameElement : SVGGraphicsElement {
   // not implement yet
   //[Constant]
   //readonly attribute SVGAnimatedBoolean seamless;
+
+  readonly attribute Document? contentDocument;
+  readonly attribute WindowProxy? contentWindow;
+  
 };

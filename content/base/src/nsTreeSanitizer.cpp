@@ -353,6 +353,7 @@ nsIAtom** const kElementsSVG[] = {
   &nsGkAtoms::glyph, // glyph
   &nsGkAtoms::glyphRef, // glyphRef
   &nsGkAtoms::hkern, // hkern
+  &nsGkAtoms::iframe, // iframe
   &nsGkAtoms::image, // image
   &nsGkAtoms::line, // line
   &nsGkAtoms::linearGradient, // linearGradient
@@ -549,6 +550,7 @@ nsIAtom** const kAttributesSVG[] = {
   &nsGkAtoms::specularConstant, // specularConstant
   &nsGkAtoms::specularExponent, // specularExponent
   &nsGkAtoms::spreadMethod, // spreadMethod
+  &nsGkAtoms::src, // src
   &nsGkAtoms::startOffset, // startOffset
   &nsGkAtoms::stdDeviation, // stdDeviation
   // stemh

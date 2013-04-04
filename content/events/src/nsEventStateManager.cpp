@@ -1568,6 +1568,11 @@ nsEventStateManager::IsRemoteTarget(nsIContent* target) {
     return !!TabParent::GetFrom(target);
   }
 
+  // <iframe> from SVG
+  if (browserFrame && (target->Tag() == nsGkAtoms::iframe) && target->IsSVG()) {
+    return !!TabParent::GetFrom(target);
+  }
+  
   return false;
 }
 

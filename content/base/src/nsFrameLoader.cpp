@@ -44,6 +44,7 @@
 #include "nsIFrame.h"
 #include "nsIScrollableFrame.h"
 #include "nsSubDocumentFrame.h"
+#include "nsSVGIFrameFrame.h"
 #include "nsError.h"
 #include "nsGUIEvent.h"
 #include "nsEventDispatcher.h"
@@ -51,6 +52,7 @@
 #include "nsISHistoryInternal.h"
 #include "nsIDocShellHistory.h"
 #include "nsIDOMHTMLDocument.h"
+#include "nsIDOMSVGDocument.h"
 #include "nsIXULWindow.h"
 #include "nsIEditor.h"
 #include "nsIMozBrowserFrame.h"
@@ -87,6 +89,7 @@
 
 #include "jsapi.h"
 #include "mozilla/dom/HTMLIFrameElement.h"
+#include "mozilla/dom/SVGIFrameElement.h"
 #include "nsSandboxFlags.h"
 
 #include "mozilla/dom/StructuredCloneUtils.h"
@@ -459,6 +462,22 @@ nsFrameLoader::ReallyStartLoadingInternal()
     sandboxFlags = iframe->GetSandboxFlags();
 
     uint32_t parentSandboxFlags = iframe->OwnerDoc()->GetSandboxFlags();
+
+    if (sandboxFlags || parentSandboxFlags) {
+      // The child can only add restrictions, not remove them.
+      sandboxFlags |= parentSandboxFlags;
+
+      mDocShell->SetSandboxFlags(sandboxFlags);
+    }
+  }
+
+  SVGIFrameElement *svgiframe =
+    SVGIFrameElement::FromContent(mOwnerContent);
+
+  if (svgiframe) {
+    sandboxFlags = svgiframe->GetSandboxFlags();
+
+    uint32_t parentSandboxFlags = svgiframe->OwnerDoc()->GetSandboxFlags();
 
     if (sandboxFlags || parentSandboxFlags) {
       // The child can only add restrictions, not remove them.
@@ -880,6 +899,126 @@ nsFrameLoader::Show(int32_t marginWidth, int32_t marginHeight,
   }
   return true;
 }
+
+
+/*bool
+nsFrameLoader::ShowSVG(int32_t marginWidth, int32_t marginHeight,
+                       int32_t scrollbarPrefX, int32_t scrollbarPrefY,
+                       nsSVGIFrameFrame* frame)*/
+bool
+nsFrameLoader::ShowSVG(int32_t marginWidth, int32_t marginHeight,
+                       nsSVGIFrameFrame* frame)
+{
+  if (mInShow) {
+    return false;
+  }
+  // Reset mInShow if we exit early.
+  AutoResetInShow resetInShow(this);
+  mInShow = true;
+
+  nsresult rv = MaybeCreateDocShell();
+  if (NS_FAILED(rv)) {
+    return false;
+  }
+
+  if (!mRemoteFrame) {
+    if (!mDocShell)
+      return false;
+
+    mDocShell->SetMarginWidth(marginWidth);
+    mDocShell->SetMarginHeight(marginHeight);
+    /*
+    nsCOMPtr<nsIScrollable> sc = do_QueryInterface(mDocShell);
+    if (sc) {
+      sc->SetDefaultScrollbarPreferences(nsIScrollable::ScrollOrientation_X,
+                                         scrollbarPrefX);
+      sc->SetDefaultScrollbarPreferences(nsIScrollable::ScrollOrientation_Y,
+                                         scrollbarPrefY);
+    }
+    */
+    /*
+    nsCOMPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
+    if (presShell) {
+      // Ensure root scroll frame is reflowed in case scroll preferences or
+      // margins have changed
+      nsIFrame* rootScrollFrame = presShell->GetRootScrollFrame();
+      if (rootScrollFrame) {
+        presShell->FrameNeedsReflow(rootScrollFrame, nsIPresShell::eResize,
+                                    NS_FRAME_IS_DIRTY);
+      }
+      return true;
+    }
+    */
+  }
+
+  nsIntSize size = frame->GetSubdocumentSize();
+  if (mRemoteFrame) {
+    return ShowRemoteFrame(size, frame);
+  }
+
+  nsView* view = frame->EnsureInnerView();
+  if (!view)
+    return false;
+
+  nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(mDocShell);
+  NS_ASSERTION(baseWindow, "Found a nsIDocShell that isn't a nsIBaseWindow.");
+  baseWindow->InitWindow(nullptr, view->GetWidget(), 0, 0,
+                         size.width, size.height);
+  // This is kinda whacky, this "Create()" call doesn't really
+  // create anything, one starts to wonder why this was named
+  // "Create"...
+  baseWindow->Create();
+  baseWindow->SetVisibility(true);
+
+  // Trigger editor re-initialization if midas is turned on in the
+  // sub-document. This shouldn't be necessary, but given the way our
+  // editor works, it is. See
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=284245
+  nsCOMPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
+  if (presShell) {
+    nsCOMPtr<nsIDOMSVGDocument> doc =
+      do_QueryInterface(presShell->GetDocument());
+
+    if (doc) {
+      /*
+      nsAutoString designMode;
+      doc->GetDesignMode(designMode);
+
+      if (designMode.EqualsLiteral("on")) {
+        // Hold on to the editor object to let the document reattach to the
+        // same editor object, instead of creating a new one.
+        nsCOMPtr<nsIEditor> editor;
+        nsresult rv = mDocShell->GetEditor(getter_AddRefs(editor));
+        NS_ENSURE_SUCCESS(rv, false);
+
+        doc->SetDesignMode(NS_LITERAL_STRING("off"));
+        doc->SetDesignMode(NS_LITERAL_STRING("on"));
+      } else {
+        // Re-initialize the presentation for contenteditable documents
+        bool editable = false,
+             hasEditingSession = false;
+        mDocShell->GetEditable(&editable);
+        mDocShell->GetHasEditingSession(&hasEditingSession);
+        nsCOMPtr<nsIEditor> editor;
+        mDocShell->GetEditor(getter_AddRefs(editor));
+        if (editable && hasEditingSession && editor) {
+          editor->PostCreate();
+        }
+      }
+      */
+    }
+  }
+
+  mInShow = false;
+  if (mHideCalled) {
+    mHideCalled = false;
+    Hide();
+    return false;
+  }
+  return true;
+}
+
+
 
 void
 nsFrameLoader::MarginsChanged(uint32_t aMarginWidth,
@@ -1563,7 +1702,7 @@ nsFrameLoader::MaybeCreateDocShell()
   nsAutoString frameName;
 
   int32_t namespaceID = mOwnerContent->GetNameSpaceID();
-  if (namespaceID == kNameSpaceID_XHTML && !mOwnerContent->IsInHTMLDocument()) {
+  if ((namespaceID == kNameSpaceID_XHTML || namespaceID == kNameSpaceID_SVG) && !mOwnerContent->IsInHTMLDocument()) {
     mOwnerContent->GetAttr(kNameSpaceID_None, nsGkAtoms::id, frameName);
   } else {
     mOwnerContent->GetAttr(kNameSpaceID_None, nsGkAtoms::name, frameName);

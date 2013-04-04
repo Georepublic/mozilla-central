@@ -88,7 +88,7 @@ public:
   nsresult BeginSwapDocShells(nsIFrame* aOther);
   void EndSwapDocShells(nsIFrame* aOther);
   nsView* EnsureInnerView();
-  nsIFrame* GetSubdocumentRootFrame();
+  virtual nsIFrame* GetSubdocumentRootFrame();
   nsIntSize GetSubdocumentSize();
 
   // nsIReflowCallback

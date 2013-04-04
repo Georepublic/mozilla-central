@@ -26,6 +26,7 @@
 
 class nsIURI;
 class nsSubDocumentFrame;
+class nsSVGIFrameFrame;
 class nsView;
 class nsIInProcessContentFrameMessageManager;
 class AutoResetInShow;
@@ -199,6 +200,10 @@ public:
   bool Show(int32_t marginWidth, int32_t marginHeight,
               int32_t scrollbarPrefX, int32_t scrollbarPrefY,
               nsSubDocumentFrame* frame);
+
+  bool ShowSVG(int32_t marginWidth, int32_t marginHeight,
+               nsSVGIFrameFrame* frame);
+
 
   /**
    * Called when the margin properties of the containing frame are changed.

@@ -81,6 +81,35 @@ SVGIFrameElement::~SVGIFrameElement()
 }
 
 //----------------------------------------------------------------------
+// nsSVGElement methods
+
+/* virtual */ gfxMatrix
+SVGIFrameElement::PrependLocalTransformsTo(const gfxMatrix &aMatrix,
+                                           TransformTypes aWhich) const
+{
+  NS_ABORT_IF_FALSE(aWhich != eChildToUserSpace || aMatrix.IsIdentity(),
+                    "Skipping eUserSpaceToParent transforms makes no sense");
+
+  // 'transform' attribute:
+  gfxMatrix fromUserSpace =
+    SVGGraphicsElement::PrependLocalTransformsTo(aMatrix, aWhich);
+  if (aWhich == eUserSpaceToParent) {
+    return fromUserSpace;
+  }
+  // our 'x' and 'y' attributes:
+  float x, y;
+  const_cast<SVGIFrameElement*>(this)->
+    GetAnimatedLengthValues(&x, &y, nullptr);
+  gfxMatrix toUserSpace = gfxMatrix().Translate(gfxPoint(x, y));
+  if (aWhich == eChildToUserSpace) {
+    return toUserSpace;
+  }
+  NS_ABORT_IF_FALSE(aWhich == eAllTransforms, "Unknown TransformTypes");
+  return toUserSpace * fromUserSpace;
+}
+  
+  
+//----------------------------------------------------------------------
 // nsIDOMNode methods
 
 nsresult
@@ -104,7 +133,7 @@ SVGIFrameElement::Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const
   
 //----------------------------------------------------------------------
 // nsSVGElement methods
-
+  
 nsSVGElement::LengthAttributesInfo
 SVGIFrameElement::GetLengthInfo()
 {
@@ -135,6 +164,18 @@ SVGIFrameElement::GetStringInfo()
   return NS_OK;
 }*/
 
+already_AddRefed<nsIDocument>
+SVGIFrameElement::GetContentDocument()
+{
+  return SVGIFrameElementBase::GetContentDocument();
+}
+
+already_AddRefed<nsIDOMWindow>
+SVGIFrameElement::GetContentWindow()
+{
+  return SVGIFrameElementBase::GetContentWindow();
+}
+  
 already_AddRefed<SVGAnimatedLength>
 SVGIFrameElement::X()
 {

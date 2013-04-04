@@ -2376,7 +2376,7 @@ nsDocumentViewer::FindContainerView()
           // constructor can treat a <frame> as an inline in some XBL
           // cases. Treat that as display:none, the document is not
           // displayed.
-          if (subdocFrame->GetType() == nsGkAtoms::subDocumentFrame) {
+          if (subdocFrame && subdocFrame->GetType() == nsGkAtoms::subDocumentFrame) {
             NS_ASSERTION(subdocFrame->GetView(), "Subdoc frames must have views");
             nsView* innerView =
               static_cast<nsSubDocumentFrame*>(subdocFrame)->EnsureInnerView();

@@ -805,6 +805,9 @@ SVGSVGElement::WillBeOutermostSVG(nsIContent* aParent,
       // SVG in a foreignObject must have its own <svg> (nsSVGOuterSVGFrame).
       return false;
     }
+    if (tag == nsGkAtoms::iframe) {
+      return false;
+    }
     if (tag == nsGkAtoms::svg) {
       return false;
     }
