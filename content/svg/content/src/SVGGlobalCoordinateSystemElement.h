@@ -8,17 +8,16 @@
 
 #include "nsSVGElement.h"
 #include "nsSVGString.h"
-#include "SVGAnimatedTransformList.h"
+#include "nsSVGAnimatedTransformList.h"
 
 nsresult
 NS_NewSVGGlobalCoordinateSystemElement(nsIContent **aResult,
                                        already_AddRefed<nsINodeInfo> aNodeInfo);
 
 namespace mozilla {
-
-class DOMSVGAnimatedTransformList;
-
 namespace dom {
+
+class SVGAnimatedTransformList;
 
 typedef nsSVGElement SVGGlobalCoordinateSystemElementBase;
 
@@ -27,7 +26,7 @@ class SVGGlobalCoordinateSystemElement : public SVGGlobalCoordinateSystemElement
 protected:
   SVGGlobalCoordinateSystemElement(already_AddRefed<nsINodeInfo> aNodeInfo);
   virtual JSObject*
-    WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
+    WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
   friend nsresult
 	(::NS_NewSVGGlobalCoordinateSystemElement(nsIContent **aResult,
                                               already_AddRefed<nsINodeInfo> aNodeInfo));
@@ -36,15 +35,15 @@ public:
 
   virtual nsresult Clone(nsINodeInfo *aNodeInfo, nsINode **aResult) const;
 
-  virtual SVGAnimatedTransformList*
+  virtual nsSVGAnimatedTransformList*
     GetAnimatedTransformList(uint32_t aFlags = 0);
   virtual nsIAtom* GetTransformListAttrName() const {
     return nsGkAtoms::transform;
   }
 
   // WebIDL
-  already_AddRefed<DOMSVGAnimatedTransformList> Transform();
-  already_AddRefed<nsIDOMSVGAnimatedString> Href();
+  already_AddRefed<SVGAnimatedTransformList> Transform();
+  already_AddRefed<SVGAnimatedString> Href();
 
 protected:
   virtual StringAttributesInfo GetStringInfo();
@@ -54,7 +53,7 @@ protected:
   static StringInfo sStringInfo[1];
 
   // SVGGlobalCoordinateSystemElement values
-  nsAutoPtr<SVGAnimatedTransformList> mTransform;
+  nsAutoPtr<nsSVGAnimatedTransformList> mTransform;
 };
 
 } // namespace dom

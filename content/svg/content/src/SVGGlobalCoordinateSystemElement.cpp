@@ -5,7 +5,7 @@
 
 #include "mozilla/dom/SVGGlobalCoordinateSystemElement.h"
 
-#include "DOMSVGAnimatedTransformList.h"
+#include "mozilla/dom/SVGAnimatedTransformList.h"
 #include "mozilla/dom/SVGGlobalCoordinateSystemElementBinding.h"
 #include "mozilla/Util.h"
 #include "nsCOMPtr.h"
@@ -21,7 +21,7 @@ namespace dom {
 //--------------- GlobalCoordinateSystem ------------------
 
 JSObject*
-SVGGlobalCoordinateSystemElement::WrapNode(JSContext *aCx, JSObject *aScope)
+SVGGlobalCoordinateSystemElement::WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope)
 {
   return SVGGlobalCoordinateSystemElementBinding::Wrap(aCx, aScope, this);
 }
@@ -54,11 +54,11 @@ SVGGlobalCoordinateSystemElement::GetStringInfo()
                               ArrayLength(sStringInfo));
 }
 
-SVGAnimatedTransformList*
+nsSVGAnimatedTransformList*
 SVGGlobalCoordinateSystemElement::GetAnimatedTransformList(uint32_t aFlags)
 {
   if (!mTransform && (aFlags & DO_ALLOCATE)) {
-    mTransform = new SVGAnimatedTransformList();
+    mTransform = new nsSVGAnimatedTransformList();
   }
   return mTransform;
 }
@@ -66,25 +66,23 @@ SVGGlobalCoordinateSystemElement::GetAnimatedTransformList(uint32_t aFlags)
 //----------------------------------------------------------------------
 
 /* readonly attribute SVGAnimatedTransformList transform; */
-already_AddRefed<DOMSVGAnimatedTransformList>
+already_AddRefed<SVGAnimatedTransformList>
 SVGGlobalCoordinateSystemElement::Transform()
 {
   // We're creating a DOM wrapper, so we must tell GetAnimatedTransformList
   // to allocate the SVGAnimatedTransformList if it hasn't already done so:
-  return DOMSVGAnimatedTransformList::GetDOMWrapper(
+  return SVGAnimatedTransformList::GetDOMWrapper(
            GetAnimatedTransformList(DO_ALLOCATE), this);
 }
 
 //----------------------------------------------------------------------
 // nsIDOMSVGURIReference methods:
 
-/* readonly attribute nsIDOMSVGAnimatedString href; */
-already_AddRefed<nsIDOMSVGAnimatedString>
+/* readonly attribute SVGAnimatedString href; */
+already_AddRefed<SVGAnimatedString>
 SVGGlobalCoordinateSystemElement::Href()
 {
-  nsCOMPtr<nsIDOMSVGAnimatedString> href;
-  mStringAttributes[HREF].ToDOMAnimatedString(getter_AddRefs(href), this);
-  return href.forget();
+  return mStringAttributes[HREF].ToDOMAnimatedString(this);
 }
 
 } // namespace dom

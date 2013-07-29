@@ -8,7 +8,6 @@
 #include "mozilla/dom/SVGIFrameElement.h"
 #include "nsCOMPtr.h"
 #include "nsGkAtoms.h"
-#include "nsIDOMSVGDocument.h"
 #include "mozilla/dom/SVGIFrameElementBinding.h"
 
 //DOMCI_NODE_DATA(SVGIFrameElement, mozilla::dom::SVGIFrameElement)
@@ -19,7 +18,7 @@ namespace mozilla {
 namespace dom {
 
 JSObject*
-SVGIFrameElement::WrapNode(JSContext *aCx, JSObject *aScope)
+SVGIFrameElement::WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope)
 {
   return SVGIFrameElementBinding::Wrap(aCx, aScope, this);
 }
@@ -56,18 +55,18 @@ NS_INTERFACE_TABLE_HEAD(SVGIFrameElement)
                            nsIDOMSVGElement,
 						   nsIDOMGetSVGDocument)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(SVGIFrameElement)
-NS_INTERFACE_MAP_END_INHERITING(SVGIFrameElementBase)
+NS_INTERFACE_MAP_END_INHERITING(GenericSVGFrameElement)
 */
 /*
 NS_IMPL_ADDREF_INHERITED(SVGIFrameElement, nsSVGElement)
 NS_IMPL_RELEASE_INHERITED(SVGIFrameElement, nsSVGElement)
 */
   /*
-NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, SVGIFrameElementBase,
+NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, GenericSVGFrameElement,
                              nsIDOMNode, nsIDOMElement,
                              nsIDOMSVGElement)
   */
-NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, SVGIFrameElementBase,
+NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, GenericSVGFrameElement,
                              nsIDOMNode, nsIDOMElement,
                              nsIDOMSVGElement)
 //----------------------------------------------------------------------
@@ -75,7 +74,7 @@ NS_IMPL_ISUPPORTS_INHERITED3(SVGIFrameElement, SVGIFrameElementBase,
 
 SVGIFrameElement::SVGIFrameElement(already_AddRefed<nsINodeInfo> aNodeInfo,
                                        FromParser aFromParser)
-  : SVGIFrameElementBase(aNodeInfo, aFromParser)
+  : GenericSVGFrameElement(aNodeInfo, aFromParser)
 {
 }
 
@@ -167,18 +166,18 @@ SVGIFrameElement::GetStringInfo()
   return NS_OK;
 }*/
 
-already_AddRefed<nsIDocument>
+nsIDocument*
 SVGIFrameElement::GetContentDocument()
 {
-  return SVGIFrameElementBase::GetContentDocument();
+  return GenericSVGFrameElement::GetContentDocument();
 }
 
 already_AddRefed<nsIDOMWindow>
 SVGIFrameElement::GetContentWindow()
 {
-  return SVGIFrameElementBase::GetContentWindow();
+  return GenericSVGFrameElement::GetContentWindow();
 }
-  
+
 already_AddRefed<SVGAnimatedLength>
 SVGIFrameElement::X()
 {
@@ -241,76 +240,66 @@ SVGIFrameElement::PreserveAspectRatio()
   return ratio.forget();
 }
 
-/* readonly attribute nsIDOMSVGAnimatedString media; */
+/* readonly attribute SVGAnimatedString media; */
 /*NS_IMETHODIMP
-SVGIFrameElement::GetMedia(nsIDOMSVGAnimatedString * *aMedia)
+SVGIFrameElement::GetMedia(SVGAnimatedString * *aMedia)
 {
   *aMedia = Media().get();
   return NS_OK;
 }*/
 
-already_AddRefed<nsIDOMSVGAnimatedString>
+already_AddRefed<SVGAnimatedString>
 SVGIFrameElement::Media()
 {
-  nsCOMPtr<nsIDOMSVGAnimatedString> media;
-  mStringAttributes[MEDIA].ToDOMAnimatedString(getter_AddRefs(media), this);
-  return media.forget();
+  return mStringAttributes[MEDIA].ToDOMAnimatedString(this);
 }
 
-/* readonly attribute nsIDOMSVGAnimatedString name; */
+/* readonly attribute SVGAnimatedString name; */
 /*NS_IMETHODIMP
-SVGIFrameElement::GetName(nsIDOMSVGAnimatedString * *aName)
+SVGIFrameElement::GetName(SVGAnimatedString * *aName)
 {
   *aName = Name().get();
   return NS_OK;
 }*/
 
-already_AddRefed<nsIDOMSVGAnimatedString>
+already_AddRefed<SVGAnimatedString>
 SVGIFrameElement::Name()
 {
-  nsCOMPtr<nsIDOMSVGAnimatedString> name;
-  mStringAttributes[NAME].ToDOMAnimatedString(getter_AddRefs(name), this);
-  return name.forget();
+  return mStringAttributes[NAME].ToDOMAnimatedString(this);
 }
 
-/* readonly attribute nsIDOMSVGAnimatedString src; */
+/* readonly attribute SVGAnimatedString src; */
 /*NS_IMETHODIMP
-SVGIFrameElement::GetSrc(nsIDOMSVGAnimatedString * *aSrc)
+SVGIFrameElement::GetSrc(SVGAnimatedString * *aSrc)
 {
   *aSrc = Src().get();
   return NS_OK;
 }*/
 
-already_AddRefed<nsIDOMSVGAnimatedString>
+already_AddRefed<SVGAnimatedString>
 SVGIFrameElement::Src()
 {
-  nsCOMPtr<nsIDOMSVGAnimatedString> src;
-  mStringAttributes[SRC].ToDOMAnimatedString(getter_AddRefs(src), this);
-  return src.forget();
+  return mStringAttributes[SRC].ToDOMAnimatedString(this);
 }
 
-/* readonly attribute nsIDOMSVGAnimatedString srcdoc; */
+/* readonly attribute SVGAnimatedString srcdoc; */
 /*NS_IMETHODIMP
-SVGIFrameElement::GetSrcdoc(nsIDOMSVGAnimatedString * *aSrcdoc)
+SVGIFrameElement::GetSrcdoc(SVGAnimatedString * *aSrcdoc)
 {
   *aSrcdoc = Srcdoc().get();
   return NS_OK;
 }*/
 
-already_AddRefed<nsIDOMSVGAnimatedString>
+already_AddRefed<SVGAnimatedString>
 SVGIFrameElement::Srcdoc()
 {
-  nsCOMPtr<nsIDOMSVGAnimatedString> srcdoc;
-  mStringAttributes[SRCDOC].ToDOMAnimatedString(getter_AddRefs(srcdoc), this);
-  return srcdoc.forget();
+  return mStringAttributes[SRCDOC].ToDOMAnimatedString(this);
 }
 
-already_AddRefed<nsIDOMSVGAnimatedString>
+already_AddRefed<SVGAnimatedString>
 SVGIFrameElement::Sandbox()
 {
-  nsCOMPtr<nsIDOMSVGAnimatedString> sandbox;
-  mStringAttributes[SANDBOX].ToDOMAnimatedString(getter_AddRefs(sandbox), this);
-  return sandbox.forget();
+  return mStringAttributes[SANDBOX].ToDOMAnimatedString(this);
 }
 
   
@@ -348,10 +337,10 @@ SVGIFrameElement::GetContentWindow(nsIDOMWindow** aContentWindow)
   return GenericSVGFrameElement::GetContentWindow(aContentWindow);
 }
 */
-NS_IMETHODIMP
-SVGIFrameElement::GetSVGDocument(nsIDOMDocument **aResult)
+nsIDocument*
+SVGIFrameElement::GetSVGDocument()
 {
-  return SVGIFrameElementBase::GetContentDocument(aResult);
+  return GenericSVGFrameElement::GetContentDocument();
 }
 
 //bool

@@ -51,7 +51,6 @@
 #include "nsISHistory.h"
 #include "nsISHistoryInternal.h"
 #include "nsIDOMHTMLDocument.h"
-#include "nsIDOMSVGDocument.h"
 #include "nsIXULWindow.h"
 #include "nsIEditor.h"
 #include "nsIMozBrowserFrame.h"
@@ -987,7 +986,7 @@ nsFrameLoader::ShowSVG(int32_t marginWidth, int32_t marginHeight,
   // https://bugzilla.mozilla.org/show_bug.cgi?id=284245
   nsCOMPtr<nsIPresShell> presShell = mDocShell->GetPresShell();
   if (presShell) {
-    nsCOMPtr<nsIDOMSVGDocument> doc =
+    nsCOMPtr<nsIDOMHTMLDocument> doc =
       do_QueryInterface(presShell->GetDocument());
 
     if (doc) {

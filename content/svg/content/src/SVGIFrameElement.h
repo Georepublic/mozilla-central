@@ -7,7 +7,6 @@
 #define mozilla_dom_SVGIFrameElement_h
 
 #include "GenericSVGFrameElement.h"
-#include "nsIDOMGetSVGDocument.h"
 #include "nsContentUtils.h"
 #include "nsSVGLength2.h"
 #include "nsSVGString.h"
@@ -19,23 +18,20 @@ nsresult NS_NewSVGIFrameElement(nsIContent **aResult,
                                 already_AddRefed<nsINodeInfo> aNodeInfo,
                                 mozilla::dom::FromParser aFromParser);
 
-typedef GenericSVGFrameElement SVGIFrameElementBase;
-
 class nsSVGIFrameFrame;
 
 namespace mozilla {
 namespace dom {
 class DOMSVGAnimatedPreserveAspectRatio;
 
-class SVGIFrameElement MOZ_FINAL : public SVGIFrameElementBase
-                                 , public nsIDOMGetSVGDocument
+class SVGIFrameElement MOZ_FINAL : public GenericSVGFrameElement
 {
   friend class ::nsSVGIFrameFrame;
 
 protected:
   SVGIFrameElement(already_AddRefed<nsINodeInfo> aNodeInfo,
 	                 mozilla::dom::FromParser aFromParser);
-  virtual JSObject* WrapNode(JSContext *aCx, JSObject *aScope) MOZ_OVERRIDE;
+  virtual JSObject* WrapNode(JSContext *aCx, JS::Handle<JSObject*> aScope) MOZ_OVERRIDE;
   virtual ~SVGIFrameElement();
 
   friend nsresult (::NS_NewSVGIFrameElement(nsIContent **aResult,
@@ -53,18 +49,13 @@ public:
   NS_FORWARD_NSIDOMELEMENT_TO_GENERIC
 
   // nsIDOMSVGElement
-  NS_FORWARD_NSIDOMSVGELEMENT(SVGIFrameElementBase::)
-
-  // nsIDOMGetSVGDocument
-  NS_DECL_NSIDOMGETSVGDOCUMENT
+  NS_FORWARD_NSIDOMSVGELEMENT(GenericSVGFrameElement::)
   */
   // interface
   NS_DECL_ISUPPORTS_INHERITED
 
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(SVGIFrameElement,
-                                           SVGIFrameElementBase)
-  // nsIDOMGetSVGDocument
-  NS_DECL_NSIDOMGETSVGDOCUMENT
+                                           GenericSVGFrameElement)
     
   // nsSVGElement specializations:
   virtual gfxMatrix PrependLocalTransformsTo(const gfxMatrix &aMatrix,
@@ -87,14 +78,15 @@ public:
   already_AddRefed<SVGAnimatedLength> Width();
   already_AddRefed<SVGAnimatedLength> Height();
   already_AddRefed<DOMSVGAnimatedPreserveAspectRatio> PreserveAspectRatio();
-  already_AddRefed<nsIDOMSVGAnimatedString> Media();
-  already_AddRefed<nsIDOMSVGAnimatedString> Name();
-  already_AddRefed<nsIDOMSVGAnimatedString> Src();
-  already_AddRefed<nsIDOMSVGAnimatedString> Srcdoc();
-  already_AddRefed<nsIDOMSVGAnimatedString> Sandbox();
-  already_AddRefed<nsIDocument> GetContentDocument();
+  already_AddRefed<SVGAnimatedString> Media();
+  already_AddRefed<SVGAnimatedString> Name();
+  already_AddRefed<SVGAnimatedString> Src();
+  already_AddRefed<SVGAnimatedString> Srcdoc();
+  already_AddRefed<SVGAnimatedString> Sandbox();
+  nsIDocument* GetContentDocument();
   already_AddRefed<nsIDOMWindow> GetContentWindow();
   void SetSandbox(const nsAString & aSandbox, ErrorResult& rv);
+  nsIDocument* GetSVGDocument();
 
   //virtual nsresult AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
   //                              const nsAttrValue* aValue,

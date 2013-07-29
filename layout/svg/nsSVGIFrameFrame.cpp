@@ -106,7 +106,7 @@ nsSVGIFrameFrame::Init(nsIContent* aContent,
                "Content is not an SVG iframe!");
 
   AddStateBits(aParent->GetStateBits() &
-               (NS_STATE_SVG_NONDISPLAY_CHILD | NS_STATE_SVG_CLIPPATH_CHILD));
+               (NS_FRAME_IS_NONDISPLAY | NS_STATE_SVG_CLIPPATH_CHILD));
   //  nsresult rv = nsSVGIFrameFrameBase::Init(aContent, aParent, aPrevInFlow);
   nsLeafFrame::Init(aContent, aParent, aPrevInFlow);
 
@@ -381,7 +381,7 @@ nsSVGIFrameFrame::RemoveFrame(ChildListID aListID,
 void nsSVGIFrameFrame::DestroyFrom(nsIFrame* aDestructRoot)
 {
   // Only unregister if we registered in the first place:
-  if (!(mState & NS_STATE_SVG_NONDISPLAY_CHILD)) {
+  if (!(mState & NS_FRAME_IS_NONDISPLAY)) {
     NS_WARNING("to unregister object");
     //nsSVGUtils::GetOuterSVGFrame((nsSVGForeignObjectFrame *)this)->UnregisterForeignObject(this);
   }
@@ -407,7 +407,7 @@ nsSVGIFrameFrame::AttributeChanged(int32_t  aNameSpaceID,
   if (aNameSpaceID == kNameSpaceID_None) {
     if (aAttribute == nsGkAtoms::width ||
         aAttribute == nsGkAtoms::height) {
-      nsSVGUtils::InvalidateBounds(this, false);
+      nsSVGEffects::InvalidateRenderingObservers(this);
       nsSVGUtils::ScheduleReflowSVG(this);
       // XXXjwatt: why mark intrinsic widths dirty? can't we just use eResize?
       RequestReflow(nsIPresShell::eStyleChange);
@@ -416,11 +416,11 @@ nsSVGIFrameFrame::AttributeChanged(int32_t  aNameSpaceID,
                aAttribute == nsGkAtoms::transform) {
       // make sure our cached transform matrix gets (lazily) updated
       mCanvasTM = nullptr;
-      nsSVGUtils::InvalidateBounds(this, false);
+      nsSVGEffects::InvalidateRenderingObservers(this);
       nsSVGUtils::ScheduleReflowSVG(this);
     } else if (aAttribute == nsGkAtoms::viewBox ||
                aAttribute == nsGkAtoms::preserveAspectRatio) {
-      nsSVGUtils::InvalidateBounds(this);
+      nsSVGEffects::InvalidateRenderingObservers(this);
     } else if (aAttribute == nsGkAtoms::src) {
       //SVGIFrameElement *element = static_cast<SVGIFrameElement*>(mContent);
       NS_WARNING("src changed");
@@ -443,7 +443,7 @@ nsSVGIFrameFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
     // XXXperf: probably only need a bounds update if 'font-size' changed and
     // we have em unit width/height. Or, once we map 'transform' into style,
     // if some transform property changed.
-    nsSVGUtils::InvalidateBounds(this, false);
+    nsSVGEffects::InvalidateRenderingObservers(this);
     nsSVGUtils::ScheduleReflowSVG(this);
   }
 }
@@ -454,7 +454,7 @@ nsSVGIFrameFrame::Reflow(nsPresContext*           aPresContext,
                          const nsHTMLReflowState& aReflowState,
                          nsReflowStatus&          aStatus)
 {
-  NS_ABORT_IF_FALSE(!(GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD),
+  NS_ABORT_IF_FALSE(!(GetStateBits() & NS_FRAME_IS_NONDISPLAY),
                     "Should not have been called");
 
   // Only InvalidateAndScheduleBoundsUpdate marks us with NS_FRAME_IS_DIRTY,
@@ -558,7 +558,7 @@ nsSVGIFrameFrame::PaintSVG(nsRenderingContext *aContext,
                            const nsIntRect *aDirtyRect)
 {
   NS_ASSERTION(!NS_SVGDisplayListPaintingEnabled() ||
-               (mState & NS_STATE_SVG_NONDISPLAY_CHILD),
+               (mState & NS_FRAME_IS_NONDISPLAY),
                "If display lists are enabled, only painting of non-display "
                "SVG should take this code path");
 
@@ -581,7 +581,7 @@ nsSVGIFrameFrame::PaintSVG(nsRenderingContext *aContext,
   /* Check if we need to draw anything. */
   if (aDirtyRect) {
     NS_ASSERTION(!NS_SVGDisplayListPaintingEnabled() ||
-                 (mState & NS_STATE_SVG_NONDISPLAY_CHILD),
+                 (mState & NS_FRAME_IS_NONDISPLAY),
                  "Display lists handle dirty rect intersection test");
     // Transform the dirty rect into app units in our userspace.
     gfxMatrix invmatrix = canvasTM;
@@ -645,11 +645,11 @@ NS_IMETHODIMP_(nsIFrame*)
 nsSVGIFrameFrame::GetFrameForPoint(const nsPoint &aPoint)
 {
   NS_ASSERTION(!NS_SVGDisplayListHitTestingEnabled() ||
-               (mState & NS_STATE_SVG_NONDISPLAY_CHILD),
+               (mState & NS_FRAME_IS_NONDISPLAY),
                "If display lists are enabled, only hit-testing of a "
                "clipPath's contents should take this code path");
 
-  if (IsDisabled() || (GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD))
+  if (IsDisabled() || (GetStateBits() & NS_FRAME_IS_NONDISPLAY))
     return nullptr;
 
   nsIFrame* kid = GetFirstPrincipalChild();
@@ -707,7 +707,7 @@ nsSVGIFrameFrame::ReflowSVG()
   NS_ASSERTION(nsSVGUtils::OuterSVGIsCallingReflowSVG(this),
                "This call is probably a wasteful mistake");
 
-  NS_ABORT_IF_FALSE(!(GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD),
+  NS_ABORT_IF_FALSE(!(GetStateBits() & NS_FRAME_IS_NONDISPLAY),
                     "ReflowSVG mechanism not designed for this");
 
   if (!nsSVGUtils::NeedsReflowSVG(this)) {
@@ -853,7 +853,7 @@ nsSVGIFrameFrame::GetBBoxContribution(const gfxMatrix &aToBBoxUserspace,
 gfxMatrix
 nsSVGIFrameFrame::GetCanvasTM(uint32_t aFor)
 {
-  if (!(GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD)) {
+  if (!(GetStateBits() & NS_FRAME_IS_NONDISPLAY)) {
     if ((aFor == FOR_PAINTING && NS_SVGDisplayListPaintingEnabled()) ||
         (aFor == FOR_HIT_TESTING && NS_SVGDisplayListHitTestingEnabled())) {
       return nsSVGIntegrationUtils::GetCSSPxToDevPxMatrix(this);
@@ -1000,7 +1000,7 @@ nsSVGIFrameFrame::ReflowChild(nsIFrame*                aKidFrame,
       // Remove all of the childs next-in-flows. Make sure that we ask
       // the right parent to do the removal (it's possible that the
       // parent is not this because we are executing pullup code)
-      if (aTracker) aTracker->Finish(aKidFrame);
+      nsOverflowContinuationTracker::AutoFinish fini(aTracker, aKidFrame);
       static_cast<nsContainerFrame*>(kidNextInFlow->GetParent())
         ->DeleteNextInFlowChild(aPresContext, kidNextInFlow, true);
     }
